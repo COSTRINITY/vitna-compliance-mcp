@@ -1,21 +1,21 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.json",
-  "name": "io.github.COSTRINITY/vigil-compliance-mcp",
+  "name": "io.github.COSTRINITY/vitna-compliance-mcp",
   "description": "Safety and compliance oversight layer for AI agents: check risky actions before they run, get an allow/deny/hold decision, and keep a signed, auditable record so a human can monitor and keep the agent in check. Covers dangerous shell/SQL/secret-exfil actions plus the EU AI Act, India's DPDP, and 11 more regimes. Zero setup: the first tool call self-provisions a trial key.",
-  "version": "0.2.1",
-  "websiteUrl": "https://vigil.costrinity.xyz/why-vigil",
+  "version": "0.3.0",
+  "websiteUrl": "https://vitna.costrinity.xyz/why-vitna",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
-      "identifier": "@costrinity/vigil-compliance-mcp",
-      "version": "0.2.1",
+      "identifier": "@costrinity/vitna-compliance-mcp",
+      "version": "0.3.0",
       "transport": { "type": "stdio" },
       "environmentVariables": [
-        { "name": "VIGIL_OWNER_ID", "description": "Your VIGIL operator UUID. Optional: if unset, the first tool call self-provisions a restricted trial key.", "isRequired": false },
-        { "name": "VIGIL_API_KEY", "description": "Your VIGIL API key (vigil_...). Optional: self-provisioned if unset.", "isSecret": true },
-        { "name": "VIGIL_EMAIL", "description": "Email to own the self-provisioned trial account. Optional: a throwaway is used if unset (claim later to bind a real email).", "isRequired": false },
-        { "name": "VIGIL_BASE_URL", "description": "VIGIL base URL; override only for self-hosted.", "default": "https://vigil.costrinity.xyz" }
+        { "name": "VITNA_OWNER_ID", "description": "Your VITNA operator UUID. Optional: if unset, the first tool call self-provisions a restricted trial key. The old VIGIL_OWNER_ID name is still accepted.", "isRequired": false },
+        { "name": "VITNA_API_KEY", "description": "Your VITNA API key (new keys vitna_..., legacy vigil_... keys remain valid). Optional: self-provisioned if unset. The old VIGIL_API_KEY name is still accepted.", "isSecret": true },
+        { "name": "VITNA_EMAIL", "description": "Email to own the self-provisioned trial account. Optional: a throwaway is used if unset (claim later to bind a real email). The old VIGIL_EMAIL name is still accepted.", "isRequired": false },
+        { "name": "VITNA_BASE_URL", "description": "VITNA base URL; override only for self-hosted. The old VIGIL_BASE_URL name is still accepted.", "default": "https://vitna.costrinity.xyz" }
       ]
     }
   ]

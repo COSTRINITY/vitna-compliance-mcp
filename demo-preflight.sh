@@ -1,24 +1,24 @@
 #!/usr/bin/env bash
 #
-# VIGIL pre-flight + signed-record demo. Runs the REAL flow against the live
-# VIGIL API using YOUR account credentials: it runs a couple of compliance
+# VITNA pre-flight + signed-record demo. Runs the REAL flow against the live
+# VITNA API using YOUR account credentials: it runs a couple of compliance
 # decision checks (each writes a signed, tamper-evident audit record to your
 # account) and then retrieves and shows those signed records. Nothing is
 # deleted. Your API key is masked in the output.
 #
 # Usage:
 #   VIGIL_API_KEY=vigil_xxx VIGIL_OWNER_ID=<your-owner-uuid> ./demo-preflight.sh
-#   (optional) VIGIL_BASE_URL=https://vigil.costrinity.xyz
+#   (optional) VIGIL_BASE_URL=https://vitna.costrinity.xyz
 #
-# Get VIGIL_API_KEY and VIGIL_OWNER_ID from your VIGIL dashboard.
+# Get VIGIL_API_KEY and VIGIL_OWNER_ID from your VITNA dashboard.
 # Requires: bash, curl, node.
 set -euo pipefail
 
-APP="${VIGIL_BASE_URL:-https://vigil.costrinity.xyz}"
+APP="${VIGIL_BASE_URL:-https://vitna.costrinity.xyz}"
 KEY="${VIGIL_API_KEY:-}"
 OWNER="${VIGIL_OWNER_ID:-}"
 if [ -z "$KEY" ] || [ -z "$OWNER" ]; then
-  echo "Set VIGIL_API_KEY and VIGIL_OWNER_ID (from your VIGIL dashboard) and re-run."
+  echo "Set VIGIL_API_KEY and VIGIL_OWNER_ID (from your VITNA dashboard) and re-run."
   echo "  VIGIL_API_KEY=vigil_xxx VIGIL_OWNER_ID=<uuid> ./demo-preflight.sh"
   exit 1
 fi
@@ -28,7 +28,7 @@ MASK="${KEY:0:12}**********"
 fields() { printf '%s' "$1" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const o=JSON.parse(s);console.log(process.argv.slice(1).map(k=>k+'='+JSON.stringify(o[k])).join('  '))})" "${@:2}"; }
 
 echo "===================================================================="
-echo " VIGIL pre-flight checks -> signed audit records    LIVE: $APP"
+echo " VITNA pre-flight checks -> signed audit records    LIVE: $APP"
 echo " owner ${OWNER:0:8}...   key ${MASK}   (api key masked)"
 echo "===================================================================="
 echo ""

@@ -72,9 +72,9 @@
   "verification": {
     "package_signature_alg": "Ed25519",
     "public_key_id": "01833acd46d06ab4",
-    "public_key_url": "https://vigil.costrinity.xyz/api/evidence/pubkey",
-    "verify_endpoint": "https://vigil.costrinity.xyz/api/evidence/verify",
-    "offline_verifier": "https://github.com/COSTRINITY/vigil-compliance-mcp/blob/main/verify-evidence.mjs",
-    "proves": "package_signature: this exact bundle was issued by VIGIL and not altered since export, verifiable offline with the published public key. record_hashes: every individual decision record is committed by sha256 (canonical JSON) inside the signed bundle, so a third party can independently verify each record, not just the bundle. hmac_verified (per decision) is the internal write-time integrity check, verifiable only by VIGIL. None of these prove the actions were performed or that the records are factually true."
+    "public_key_url": "https://vitna.costrinity.xyz/api/evidence/pubkey",
+    "verify_endpoint": "https://vitna.costrinity.xyz/api/evidence/verify",
+    "offline_verifier": "https://github.com/COSTRINITY/vitna-compliance-mcp/blob/main/verify-evidence.mjs",
+    "proves": "package_signature: this exact bundle was issued by VITNA and not altered since export, verifiable offline with the published public key. record_hashes: every individual decision record is committed by sha256 (canonical JSON) inside the signed bundle, so a third party can independently verify each record, not just the bundle. hmac_verified (per decision) is the internal write-time integrity check, verifiable only by VITNA. None of these prove the actions were performed or that the records are factually true."
   }
 }

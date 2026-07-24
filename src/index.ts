@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * VIGIL Compliance MCP server.
+ * VITNA Compliance MCP server.
  *
- * Exposes VIGIL's compliance fabric as MCP tools so LLM agents can:
+ * Exposes VITNA's compliance fabric as MCP tools so LLM agents can:
  *   - Check if processing is allowed under any active consent
  *   - Classify whether an incident is reportable per jurisdiction
  *   - Classify an AI system under the EU AI Act
@@ -15,10 +15,10 @@
  *   Compliance lives in the operator's runtime, not their planning stage.
  *   An agent that's about to send a user record cross-border should be
  *   able to ASK whether that's allowed — at request time, not in a
- *   yearly DPIA. MCP turns VIGIL from a dashboard the operator visits
+ *   yearly DPIA. MCP turns VITNA from a dashboard the operator visits
  *   into a synchronous decision-support layer the agent calls.
  *
- *   Pair with `@costrinity/vigil-mcp` (the proxy/observer) for full
+ *   Pair with `@costrinity/vitna-mcp` (the proxy/observer) for full
  *   coverage: the observer captures what the agent does, this server
  *   gives the agent compliance superpowers before it acts.
  *
@@ -30,11 +30,11 @@
  *       "mcpServers": {
  *         "vigil-compliance": {
  *           "command": "npx",
- *           "args": ["@costrinity/vigil-compliance-mcp"],
+ *           "args": ["@costrinity/vitna-compliance-mcp"],
  *           "env": {
- *             "VIGIL_OWNER_ID": "<your-owner-uuid>",
- *             "VIGIL_API_KEY": "vigil_<your-key>",
- *             "VIGIL_BASE_URL": "https://vigil.costrinity.xyz"
+ *             "VITNA_OWNER_ID": "<your-owner-uuid>",
+ *             "VITNA_API_KEY": "vigil_<your-key>",
+ *             "VITNA_BASE_URL": "https://vitna.costrinity.xyz"
  *           }
  *         }
  *       }
@@ -52,20 +52,35 @@ import { homedir, hostname } from 'node:os';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 
-const VIGIL_BASE_URL = process.env.VIGIL_BASE_URL ?? 'https://vigil.costrinity.xyz';
+// Env vars: VITNA_* is canonical. The old VIGIL_* names are accepted forever
+// as aliases, so existing user configs never break.
+const env = (name: string): string | undefined =>
+  process.env['VITNA_' + name] ?? process.env['VIGIL_' + name];
+
+const VITNA_BASE_URL = env('BASE_URL') ?? 'https://vitna.costrinity.xyz';
 // let, not const: when absent, these are populated on first use by
 // self-provisioning (a restricted trial key) or from the local cache.
-let VIGIL_OWNER_ID = process.env.VIGIL_OWNER_ID ?? '';
-let VIGIL_API_KEY = process.env.VIGIL_API_KEY ?? '';
+let VITNA_OWNER_ID = env('OWNER_ID') ?? '';
+let VITNA_API_KEY = env('API_KEY') ?? '';
 // Claim URL for the current (trial) account, learned on provision or from the
 // cache. justProvisioned is true only on the single tool call that triggered
 // self-provisioning, so the very first tool response can carry a plain-language
 // connection notice the agent relays to the user.
-let VIGIL_CLAIM_URL = '';
+let VITNA_CLAIM_URL = '';
 let justProvisioned = false;
 
-const SERVER_NAME = 'vigil-compliance';
-const SERVER_VERSION = '0.2.1';
+const SERVER_NAME = 'vitna-compliance';
+const SERVER_VERSION = '0.3.0';
+
+/**
+ * Tool names from the VIGIL era, mapped to their VITNA names. Resolved in
+ * tools/call but intentionally absent from tools/list, so the advertised
+ * catalogue is VITNA-only while cached agent configs keep working forever.
+ */
+const TOOL_ALIASES: Record<string, string> = {
+  vigil_help: 'vitna_help',
+  action_preflight: 'vitna_preflight',
+};
 
 // ─── Tool catalogue ────────────────────────────────────────────────
 
@@ -73,9 +88,9 @@ interface ToolDef {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
-  /** Maps the MCP call to a VIGIL HTTP request. Omitted for local tools. */
+  /** Maps the MCP call to a VITNA HTTP request. Omitted for local tools. */
   call?: (input: Record<string, unknown>) => { method: string; path: string; body?: unknown };
-  /** Local tool: returns a value directly with no VIGIL HTTP call (no auth, no
+  /** Local tool: returns a value directly with no VITNA HTTP call (no auth, no
    *  metering). Used for the self-describe / onboarding tool. */
   local?: (input: Record<string, unknown>) => unknown;
 }
@@ -83,9 +98,9 @@ interface ToolDef {
 const TOOLS: ToolDef[] = [
   // ─── Onboarding / self-describe (call this first) ────────────────
   {
-    name: 'vigil_help',
+    name: 'vitna_help',
     description:
-      "What is VIGIL and how do I use it to keep myself in check? Call this FIRST after connecting to learn the safety and oversight checks available: how to check risky actions BEFORE running them, what a deny / hold decision means, trial vs claimed mode, and how the user can monitor and audit what you do. Lightweight, no account or network needed.",
+      "What is VITNA and how do I use it to keep myself in check? Call this FIRST after connecting to learn the safety and oversight checks available: how to check risky actions BEFORE running them, what a deny / hold decision means, trial vs claimed mode, and how the user can monitor and audit what you do. Lightweight, no account or network needed.",
     inputSchema: { type: 'object', properties: {} },
     local: () => vigilHelp(),
   },
@@ -94,7 +109,7 @@ const TOOLS: ToolDef[] = [
   {
     name: 'consent_check',
     description:
-      "Before you process someone's personal data, ask VIGIL whether an active consent actually permits it for this purpose. Give the data principal + purpose (and optional category); returns { allowed, reason, matching_consent_id, principal_id }, a determination you must honour yourself since VIGIL evaluates and records but does not enforce. Use this for personal-data processing legality; for a dangerous technical action (shell / file / DB / network) use action_preflight instead.",
+      "Before you process someone's personal data, ask VITNA whether an active consent actually permits it for this purpose. Give the data principal + purpose (and optional category); returns { allowed, reason, matching_consent_id, principal_id }, a determination you must honour yourself since VITNA evaluates and records but does not enforce. Use this for personal-data processing legality; for a dangerous technical action (shell / file / DB / network) use action_preflight instead.",
     inputSchema: {
       type: 'object',
       required: ['purpose'],
@@ -116,7 +131,7 @@ const TOOLS: ToolDef[] = [
   {
     name: 'breach_classify',
     description:
-      "After a security incident, check whether it is legally reportable before you decide how to respond. Give the incident facts (affected count, data categories, sensitivity, recovery state) and VIGIL returns reportability + reasoning + the notification deadline + who to notify, across DPDP §8, GDPR Art 33, CPRA §1798.82, LGPD Art 48, PDPA §26B, and US-FED sectoral. This makes the full incident decision from the facts; for a quick per-US-state deadline/recipient/threshold table without incident facts, use us_state_breach_deadline. VIGIL evaluates and records; acting on the result is up to you.",
+      "After a security incident, check whether it is legally reportable before you decide how to respond. Give the incident facts (affected count, data categories, sensitivity, recovery state) and VITNA returns reportability + reasoning + the notification deadline + who to notify, across DPDP §8, GDPR Art 33, CPRA §1798.82, LGPD Art 48, PDPA §26B, and US-FED sectoral. This makes the full incident decision from the facts; for a quick per-US-state deadline/recipient/threshold table without incident facts, use us_state_breach_deadline. VITNA evaluates and records; acting on the result is up to you.",
     inputSchema: {
       type: 'object',
       required: ['affected_count', 'data_categories', 'sensitivity', 'recovery_state'],
@@ -136,7 +151,7 @@ const TOOLS: ToolDef[] = [
   {
     name: 'ai_act_classify',
     description:
-      "Before you build or ship an AI feature, check where it lands under the EU AI Act (Regulation 2024/1689). Describe the use case (with biometric / remote-identification / automated-decision / social-scoring / GPAI flags) and VIGIL returns the risk tier (prohibited / high-risk / limited-risk / minimal-risk), GPAI obligations, and the per-tier obligations you would have to meet. A classification for you to act on: VIGIL evaluates and records, it does not gate the build.",
+      "Before you build or ship an AI feature, check where it lands under the EU AI Act (Regulation 2024/1689). Describe the use case (with biometric / remote-identification / automated-decision / social-scoring / GPAI flags) and VITNA returns the risk tier (prohibited / high-risk / limited-risk / minimal-risk), GPAI obligations, and the per-tier obligations you would have to meet. A classification for you to act on: VITNA evaluates and records, it does not gate the build.",
     inputSchema: {
       type: 'object',
       required: ['use_case'],
@@ -304,7 +319,7 @@ const TOOLS: ToolDef[] = [
   {
     name: 'pii_test',
     description:
-      "Dry-run VIGIL's PII / threat detection on a sample event before you send real data, to preview what would be tagged, how it would be redacted, and whether severity would escalate. Nothing is persisted and nothing is filtered: a safe rehearsal you act on, not an enforced gate.",
+      "Dry-run VITNA's PII / threat detection on a sample event before you send real data, to preview what would be tagged, how it would be redacted, and whether severity would escalate. Nothing is persisted and nothing is filtered: a safe rehearsal you act on, not an enforced gate.",
     inputSchema: {
       type: 'object',
       required: ['sample_event'],
@@ -338,7 +353,7 @@ const TOOLS: ToolDef[] = [
   },
   {
     name: 'global_compliance_map',
-    description: "Master catalogue of every privacy/security/sectoral regime VIGIL has fabric for (28+ regimes).",
+    description: "Master catalogue of every privacy/security/sectoral regime VITNA has fabric for (28+ regimes).",
     inputSchema: { type: 'object', properties: {} },
     call: () => ({ method: 'GET', path: '/api/compliance/global-status' }),
   },
@@ -359,9 +374,9 @@ const TOOLS: ToolDef[] = [
 
   // ─── Destructive-action pre-flight gate ──────────────────────────
   {
-    name: 'action_preflight',
+    name: 'vitna_preflight',
     description:
-      "SAFETY / OVERSIGHT CHECK before a dangerous or destructive action (shell command, file deletion, DB statement, network call). Call this to have VIGIL check the action BEFORE you run it: it flags dangerous shell / SQL / secret-exfil / prompt-injection / suspicious-network patterns and returns { decision: allowed|blocked|flagged, threat_category, reason } plus (in claimed mode) a signed audit record the user can review. VIGIL evaluates and records; it does NOT enforce, so treat blocked / flagged as a stop and get human approval. This is how a user keeps you in check. Heuristic pattern match, not a sandbox: novel or obfuscated payloads can pass.",
+      "SAFETY / OVERSIGHT CHECK before a dangerous or destructive action (shell command, file deletion, DB statement, network call). Call this to have VITNA check the action BEFORE you run it: it flags dangerous shell / SQL / secret-exfil / prompt-injection / suspicious-network patterns and returns { decision: allowed|blocked|flagged, threat_category, reason } plus (in claimed mode) a signed audit record the user can review. VITNA evaluates and records; it does NOT enforce, so treat blocked / flagged as a stop and get human approval. This is how a user keeps you in check. Heuristic pattern match, not a sandbox: novel or obfuscated payloads can pass.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -376,14 +391,14 @@ const TOOLS: ToolDef[] = [
 
 // ─── Self-provisioning (restricted trial key on first use) ─────────
 //
-// When VIGIL_OWNER_ID / VIGIL_API_KEY are not set, the first tool call
+// When VITNA_OWNER_ID / VITNA_API_KEY are not set, the first tool call
 // provisions a RESTRICTED trial key via /api/setup, caches it locally, and
 // surfaces the claim URL so a human can claim the account (lifting the limits
 // and unlocking signed evidence). Explicit env credentials always win. Set
-// VIGIL_EMAIL to own the trial account under a real address; otherwise a
+// VITNA_EMAIL to own the trial account under a real address; otherwise a
 // throwaway is used and the human can bind a real email later by claiming.
 
-const CRED_FILE = join(homedir(), '.vigil', 'credentials.json');
+const CRED_FILE = join(homedir(), '.vitna', 'credentials.json');
 
 function loadCachedCreds(): { owner_id: string; api_key: string; claim_url?: string } | null {
   try {
@@ -399,44 +414,44 @@ function loadCachedCreds(): { owner_id: string; api_key: string; claim_url?: str
 
 function saveCachedCreds(c: Record<string, unknown>): void {
   try {
-    mkdirSync(join(homedir(), '.vigil'), { recursive: true });
+    mkdirSync(join(homedir(), '.vitna'), { recursive: true });
     writeFileSync(CRED_FILE, JSON.stringify(c, null, 2), { mode: 0o600 });
   } catch (e) {
-    console.error('[vigil-compliance-mcp] could not cache credentials:', e instanceof Error ? e.message : String(e));
+    console.error('[vitna-compliance-mcp] could not cache credentials:', e instanceof Error ? e.message : String(e));
   }
 }
 
 async function provision(): Promise<void> {
-  const owner_email = process.env.VIGIL_EMAIL || `agent-${randomBytes(6).toString('hex')}@mcp.vigil.local`;
-  const agent_name = process.env.VIGIL_AGENT_NAME || `vigil-compliance-mcp-${hostname()}`;
+  const owner_email = env('EMAIL') || `agent-${randomBytes(6).toString('hex')}@mcp.vitna.local`;
+  const agent_name = env('AGENT_NAME') || `vitna-compliance-mcp-${hostname()}`;
   try {
-    const res = await fetch(`${VIGIL_BASE_URL}/api/setup`, {
+    const res = await fetch(`${VITNA_BASE_URL}/api/setup`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'User-Agent': `vigil-compliance-mcp/${SERVER_VERSION}` },
+      headers: { 'Content-Type': 'application/json', 'User-Agent': `vitna-compliance-mcp/${SERVER_VERSION}` },
       body: JSON.stringify({ owner_email, agent_name }),
     });
     const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
     if (!res.ok || typeof data.api_key !== 'string' || typeof data.owner_id !== 'string') {
       console.error(
-        `[vigil-compliance-mcp] self-provision did not return a key (HTTP ${res.status}). ` +
+        `[vitna-compliance-mcp] self-provision did not return a key (HTTP ${res.status}). ` +
           `${typeof data.error === 'string' ? data.error + '. ' : ''}` +
-          'Set VIGIL_OWNER_ID + VIGIL_API_KEY manually, or VIGIL_EMAIL to a fresh address.',
+          'Set VITNA_OWNER_ID + VITNA_API_KEY manually, or VITNA_EMAIL to a fresh address.',
       );
       return;
     }
-    VIGIL_OWNER_ID = data.owner_id;
-    VIGIL_API_KEY = data.api_key;
-    if (typeof data.claim_url === 'string') VIGIL_CLAIM_URL = data.claim_url;
+    VITNA_OWNER_ID = data.owner_id;
+    VITNA_API_KEY = data.api_key;
+    if (typeof data.claim_url === 'string') VITNA_CLAIM_URL = data.claim_url;
     justProvisioned = true;
-    saveCachedCreds({ owner_id: VIGIL_OWNER_ID, api_key: VIGIL_API_KEY, base_url: VIGIL_BASE_URL, claim_url: data.claim_url ?? null });
+    saveCachedCreds({ owner_id: VITNA_OWNER_ID, api_key: VITNA_API_KEY, base_url: VITNA_BASE_URL, claim_url: data.claim_url ?? null });
     console.error(
-      `[vigil-compliance-mcp] provisioned a restricted trial key (owner ${VIGIL_OWNER_ID}). ` +
+      `[vitna-compliance-mcp] provisioned a restricted trial key (owner ${VITNA_OWNER_ID}). ` +
         (typeof data.claim_url === 'string'
           ? `Claim it for full access + signed evidence: ${data.claim_url}`
-          : 'Claim it from your VIGIL dashboard for full access.'),
+          : 'Claim it from your VITNA dashboard for full access.'),
     );
   } catch (e) {
-    console.error('[vigil-compliance-mcp] self-provision failed:', e instanceof Error ? e.message : String(e));
+    console.error('[vitna-compliance-mcp] self-provision failed:', e instanceof Error ? e.message : String(e));
   }
 }
 
@@ -445,12 +460,12 @@ let credsReady: Promise<void> | null = null;
 function ensureCredentials(): Promise<void> {
   if (!credsReady) {
     credsReady = (async () => {
-      if (VIGIL_OWNER_ID && VIGIL_API_KEY) return; // explicit env credentials win
+      if (VITNA_OWNER_ID && VITNA_API_KEY) return; // explicit env credentials win
       const cached = loadCachedCreds();
       if (cached) {
-        VIGIL_OWNER_ID = cached.owner_id;
-        VIGIL_API_KEY = cached.api_key;
-        if (cached.claim_url) VIGIL_CLAIM_URL = cached.claim_url;
+        VITNA_OWNER_ID = cached.owner_id;
+        VITNA_API_KEY = cached.api_key;
+        if (cached.claim_url) VITNA_CLAIM_URL = cached.claim_url;
         return;
       }
       await provision();
@@ -461,16 +476,20 @@ function ensureCredentials(): Promise<void> {
 
 // ─── HTTP transport ────────────────────────────────────────────────
 
-async function callVigil(method: string, path: string, body?: unknown): Promise<unknown> {
+async function callVitna(method: string, path: string, body?: unknown): Promise<unknown> {
   await ensureCredentials();
-  const url = `${VIGIL_BASE_URL}${path}${path.includes('?') ? '&' : '?'}owner_id=${encodeURIComponent(VIGIL_OWNER_ID)}`;
+  const url = `${VITNA_BASE_URL}${path}${path.includes('?') ? '&' : '?'}owner_id=${encodeURIComponent(VITNA_OWNER_ID)}`;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'User-Agent': `vigil-compliance-mcp/${SERVER_VERSION}`,
+    'User-Agent': `vitna-compliance-mcp/${SERVER_VERSION}`,
   };
-  if (VIGIL_API_KEY) {
-    headers['Authorization'] = `Bearer ${VIGIL_API_KEY}`;
-    headers['x-vigil-key'] = VIGIL_API_KEY;
+  if (VITNA_API_KEY) {
+    headers['Authorization'] = `Bearer ${VITNA_API_KEY}`;
+    // Send both header forms: x-vitna-key is current, x-vigil-key keeps this
+    // client working against any older self-hosted server that predates the
+    // rename. The server accepts either.
+    headers['x-vitna-key'] = VITNA_API_KEY;
+    headers['x-vigil-key'] = VITNA_API_KEY;
   }
   const res = await fetch(url, {
     method,
@@ -491,11 +510,11 @@ async function callVigil(method: string, path: string, body?: unknown): Promise<
 function vigilHelp(): Record<string, unknown> {
   return {
     what_is_vigil:
-      'VIGIL is a safety and compliance oversight layer for AI agents. Before you take a risky action you ask VIGIL; it returns an allow / deny / hold decision and, in claimed mode, keeps a signed, tamper-evident record a human can audit. It is how a user keeps you in check and monitors what you do.',
+      'VITNA is a safety and compliance oversight layer for AI agents. Before you take a risky action you ask VITNA; it returns an allow / deny / hold decision and, in claimed mode, keeps a signed, tamper-evident record a human can audit. It is how a user keeps you in check and monitors what you do.',
     how_to_use: [
       'Before a dangerous action (shell command, file delete, DB statement, network call), call action_preflight with the action text. decision=allowed means proceed; blocked or flagged means STOP and get human approval.',
       'Before handling personal data, call consent_check / breach_classify / dpia_threshold_check / ai_act_classify as relevant.',
-      'VIGIL evaluates and records; it does NOT enforce for you. YOU must honor a deny or hold: stop, get approval, then proceed.',
+      'VITNA evaluates and records; it does NOT enforce for you. YOU must honor a deny or hold: stop, get approval, then proceed.',
     ],
     safety_checks: [
       'action_preflight - flag dangerous shell / SQL / secret-exfil / prompt-injection / suspicious-network actions before they run',
@@ -505,7 +524,7 @@ function vigilHelp(): Record<string, unknown> {
     ],
     trial_vs_claimed:
       'On first use with no credentials you connect in TRIAL mode: decision checks work but are rate-limited, return label-only results, and do not persist signed evidence. Claiming the account (claim_url) unlocks full detail, higher limits, and signed audit records.',
-    claim_url: VIGIL_CLAIM_URL || null,
+    claim_url: VITNA_CLAIM_URL || null,
     tell_the_user:
       'Explain to the user that you are connected to a safety oversight layer, that you will check risky actions before running them, and share the claim link so they can keep the audit records and monitor you.',
   };
@@ -515,12 +534,12 @@ function vigilHelp(): Record<string, unknown> {
  *  first tool response after self-provisioning. */
 function connectionNotice(): string {
   return [
-    'CONNECTED TO VIGIL, a safety and compliance oversight layer, in TRIAL mode.',
+    'CONNECTED TO VITNA, a safety and compliance oversight layer, in TRIAL mode.',
     'You can now check risky actions BEFORE you run them: call action_preflight for shell / file / DB / network actions, or the compliance checks for data handling. Each returns an allow / deny / hold decision. Treat deny or hold as a stop and get human approval before proceeding.',
     'This trial key is rate-limited and does NOT keep signed audit evidence.',
-    VIGIL_CLAIM_URL
-      ? `To keep your audit records and raise the limits, tell the user to claim this account: ${VIGIL_CLAIM_URL}`
-      : 'To keep your audit records and raise the limits, ask the user to claim this account from the VIGIL dashboard.',
+    VITNA_CLAIM_URL
+      ? `To keep your audit records and raise the limits, tell the user to claim this account: ${VITNA_CLAIM_URL}`
+      : 'To keep your audit records and raise the limits, ask the user to claim this account from the VITNA dashboard.',
     'Relay this to the user in your own words, including the claim link.',
   ].join(' ');
 }
@@ -575,7 +594,12 @@ async function handle(req: JsonRpcReq): Promise<void> {
 
       case 'tools/call': {
         const params = (req.params ?? {}) as { name?: string; arguments?: Record<string, unknown> };
-        const tool = TOOLS.find((t) => t.name === params.name);
+        // Hidden aliases from the VIGIL era. They are deliberately NOT listed in
+        // tools/list (the catalogue advertises the vitna_* names only), but they
+        // keep working forever so an agent with a cached config does not break.
+        const requested = params.name ?? '';
+        const resolved = TOOL_ALIASES[requested] ?? requested;
+        const tool = TOOLS.find((t) => t.name === resolved);
         if (!tool) {
           err(id, -32602, `unknown tool: ${params.name}`);
           return;
@@ -585,7 +609,7 @@ async function handle(req: JsonRpcReq): Promise<void> {
           result = tool.local(params.arguments ?? {});
         } else if (tool.call) {
           const { method, path, body } = tool.call(params.arguments ?? {});
-          result = await callVigil(method, path, body);
+          result = await callVitna(method, path, body);
         } else {
           err(id, -32603, `tool ${tool.name} has no handler`);
           return;
@@ -617,11 +641,11 @@ async function handle(req: JsonRpcReq): Promise<void> {
 
 // ─── Main loop ─────────────────────────────────────────────────────
 
-if (!VIGIL_OWNER_ID && !loadCachedCreds()) {
+if (!VITNA_OWNER_ID && !loadCachedCreds()) {
   console.error(
-    '[vigil-compliance-mcp] No VIGIL_OWNER_ID / VIGIL_API_KEY set. ' +
+    '[vitna-compliance-mcp] No VITNA_OWNER_ID / VITNA_API_KEY set. ' +
       'The first tool call will self-provision a restricted trial key and print a claim URL. ' +
-      'Set VIGIL_EMAIL to own it under a real address, or set VIGIL_OWNER_ID + VIGIL_API_KEY to use an existing key.',
+      'Set VITNA_EMAIL to own it under a real address, or set VITNA_OWNER_ID + VITNA_API_KEY to use an existing key.',
   );
 }
 

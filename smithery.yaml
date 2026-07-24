@@ -1,4 +1,4 @@
-# Smithery registry manifest for @costrinity/vigil-compliance-mcp
+# Smithery registry manifest for @costrinity/vitna-compliance-mcp
 # Docs: https://smithery.ai/docs/build/project-config
 startCommand:
   type: stdio
@@ -9,25 +9,25 @@ startCommand:
     properties:
       vigilOwnerId:
         type: string
-        description: "Optional. Your VIGIL operator UUID. If unset, a trial key is self-provisioned on first use."
+        description: "Optional. Your VITNA operator UUID. If unset, a trial key is self-provisioned on first use."
       vigilApiKey:
         type: string
-        description: "Optional. Your VIGIL API key (vigil_...). Self-provisioned if unset."
+        description: "Optional. Your VITNA API key (vigil_...). Self-provisioned if unset."
       vigilEmail:
         type: string
         description: "Optional. Email to own the self-provisioned trial account (claim later to bind a real email)."
       vigilBaseUrl:
         type: string
-        default: "https://vigil.costrinity.xyz"
-        description: "VIGIL base URL. Override only for self-hosted."
+        default: "https://vitna.costrinity.xyz"
+        description: "VITNA base URL. Override only for self-hosted."
   commandFunction: |
     (config) => ({
       command: 'npx',
-      args: ['@costrinity/vigil-compliance-mcp'],
+      args: ['@costrinity/vitna-compliance-mcp'],
       env: {
         VIGIL_OWNER_ID: config.vigilOwnerId || '',
         VIGIL_API_KEY: config.vigilApiKey || '',
         VIGIL_EMAIL: config.vigilEmail || '',
-        VIGIL_BASE_URL: config.vigilBaseUrl || 'https://vigil.costrinity.xyz'
+        VIGIL_BASE_URL: config.vigilBaseUrl || 'https://vitna.costrinity.xyz'
       }
     })

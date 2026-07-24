@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 /**
- * Offline, independent verifier for a VIGIL evidence package.
+ * Offline, independent verifier for a VITNA evidence package.
  *
  *   node verify-evidence.mjs path/to/evidence.json     (or pipe the JSON via stdin)
  *
- * Uses ONLY Node's built-in crypto and VIGIL's published Ed25519 public key
- * (below). No VIGIL account, no VIGIL secret, no network. Cross-check the
+ * Uses ONLY Node's built-in crypto and VITNA's published Ed25519 public key
+ * (below). No VITNA account, no VITNA secret, no network. Cross-check the
  * embedded key against the published one at:
- *   https://vigil.costrinity.xyz/api/evidence/pubkey   (key_id must match)
+ *   https://vitna.costrinity.xyz/api/evidence/pubkey   (key_id must match)
  *
- * A VALID result proves: this package was issued by VIGIL (holder of the
+ * A VALID result proves: this package was issued by VITNA (holder of the
  * evidence private key) and has not been altered since export, and, when the
  * package carries record_hashes, that every individual decision record matches
  * its committed hash inside the signed package. It does NOT prove the
@@ -43,7 +43,7 @@ const pub = createPublicKey({ key: Buffer.from(PUBLIC_KEY_B64, 'base64'), format
 const pkgOk = verify(null, Buffer.from(canonicalize(pkg), 'utf8'), pub, Buffer.from(sig, 'base64'));
 const inPkgKeyId = doc.package_signature?.public_key_id ?? '(none)';
 
-console.log('VIGIL evidence verification (offline, Ed25519)');
+console.log('VITNA evidence verification (offline, Ed25519)');
 console.log('  expected key_id    :', KEY_ID);
 console.log('  package key_id      :', inPkgKeyId, inPkgKeyId === KEY_ID ? '(match)' : '(MISMATCH)');
 console.log('  package signature   :', pkgOk ? 'valid' : 'INVALID');
@@ -77,11 +77,11 @@ if (hashes && records) {
 
 console.log('');
 if (pkgOk && recordsOk) {
-  console.log('VALID: issued by VIGIL, not altered since export' + (hashes ? ', and every record matches its committed hash.' : '.'));
+  console.log('VALID: issued by VITNA, not altered since export' + (hashes ? ', and every record matches its committed hash.' : '.'));
   console.log('       (Does NOT prove the underlying records are factually true.)');
   process.exit(0);
 }
 console.log('INVALID: ' + (!pkgOk
-  ? 'package signature failed (altered, not signed by VIGIL, or key mismatch).'
+  ? 'package signature failed (altered, not signed by VITNA, or key mismatch).'
   : 'a decision record does not match its committed hash (record tampered).'));
 process.exit(1);

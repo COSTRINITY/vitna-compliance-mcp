@@ -1,16 +1,17 @@
-# Pull-and-run image for @costrinity/vigil-compliance-mcp.
+# Pull-and-run image for @costrinity/vitna-compliance-mcp.
 #
 # A stdio MCP server: a safety and compliance oversight layer for AI agents.
 # On the first tool call with no credentials it self-provisions a restricted
-# trial key against https://vigil.costrinity.xyz and prints a claim URL, so
+# trial key against https://vitna.costrinity.xyz and prints a claim URL, so
 # there is nothing to configure to try it. Zero runtime dependencies (Node
 # built-ins + global fetch), built from source so it does not depend on npm.
 #
-#   docker build -t costrinity/vigil-compliance-mcp .
-#   docker run --rm -i costrinity/vigil-compliance-mcp
+#   docker build -t costrinity/vitna-compliance-mcp .
+#   docker run --rm -i costrinity/vitna-compliance-mcp
 #
-# Optional env: VIGIL_EMAIL (own the trial account), or VIGIL_OWNER_ID +
-# VIGIL_API_KEY to use an existing key; VIGIL_BASE_URL for self-hosted.
+# Optional env: VITNA_EMAIL (own the trial account), or VITNA_OWNER_ID +
+# VITNA_API_KEY to use an existing key; VITNA_BASE_URL for self-hosted. The old
+# VIGIL_* names for all of these are still accepted, so existing configs work.
 
 FROM node:20-alpine AS build
 WORKDIR /app
@@ -19,10 +20,10 @@ COPY src ./src
 RUN npm install --no-save typescript@5 && npx tsc
 
 FROM node:20-alpine
-LABEL org.opencontainers.image.title="VIGIL Compliance MCP"
+LABEL org.opencontainers.image.title="VITNA Compliance MCP"
 LABEL org.opencontainers.image.description="Safety and compliance oversight layer for AI agents: check risky actions before they run, get allow/deny/hold decisions, keep signed audit records."
-LABEL org.opencontainers.image.source="https://github.com/COSTRINITY/vigil-compliance-mcp"
-LABEL org.opencontainers.image.url="https://vigil.costrinity.xyz/why-vigil"
+LABEL org.opencontainers.image.source="https://github.com/COSTRINITY/vitna-compliance-mcp"
+LABEL org.opencontainers.image.url="https://vitna.costrinity.xyz/why-vitna"
 LABEL org.opencontainers.image.licenses="MIT"
 LABEL org.opencontainers.image.vendor="COSTRINITY"
 ENV NODE_ENV=production

@@ -1,12 +1,12 @@
 {
-  "name": "@costrinity/vigil-compliance-mcp",
-  "mcpName": "io.github.COSTRINITY/vigil-compliance-mcp",
-  "version": "0.2.3",
-  "description": "VIGIL is a safety and compliance oversight layer for AI agents that produces verifiable compliance receipts: check risky actions before they run, get an allow/deny/hold decision, and keep an Ed25519-signed agent action receipt anyone can verify offline. Covers dangerous shell/SQL/secret-exfil actions plus consent, breach, DPIA, EU AI Act, India DPDP and 11 more regimes. Cooperative guardrail with heuristic detection, limits documented publicly. Zero setup: the first tool call self-provisions a trial key.",
+  "name": "@costrinity/vitna-compliance-mcp",
+  "mcpName": "io.github.COSTRINITY/vitna-compliance-mcp",
+  "version": "0.3.0",
+  "description": "VITNA by COSTRINITY produces Ed25519-signed evidence records that anyone can verify offline with a published public key and an open-source verifier, with no need to trust VITNA's servers. Your agent checks a risky action before it runs and gets an allow, block, or hold decision. It is a cooperative guardrail with heuristic detection, and those limits are documented publicly. Zero setup: the first tool call self-provisions a restricted trial key.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "vigil-compliance-mcp": "dist/index.js"
+    "vitna-compliance-mcp": "dist/index.js"
   },
   "scripts": {
     "build": "tsc",
@@ -33,6 +33,7 @@
     "ai-act",
     "privacy",
     "ai-agents",
+    "vitna",
     "vigil",
     "costrinity",
     "indigenous-owned"
@@ -42,13 +43,13 @@
   },
   "author": "COSTRINITY (Indigenous-owned software studio, Regina, Saskatchewan, Treaty 4 territory)",
   "license": "MIT",
-  "homepage": "https://vigil.costrinity.xyz/why-vigil",
+  "homepage": "https://vitna.costrinity.xyz/why-vitna",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/COSTRINITY/vigil-compliance-mcp.git"
+    "url": "git+https://github.com/COSTRINITY/vitna-compliance-mcp.git"
   },
   "bugs": {
-    "url": "https://github.com/COSTRINITY/vigil-compliance-mcp/issues"
+    "url": "https://github.com/COSTRINITY/vitna-compliance-mcp/issues"
   },
   "files": [
     "dist",

@@ -1,16 +1,16 @@
-# @costrinity/vigil-compliance-mcp
+# @costrinity/vitna-compliance-mcp
 
-VIGIL produces Ed25519-signed evidence records that anyone can verify offline with a published public key and an open-source verifier, with no need to trust VIGIL's servers. It is a cooperative guardrail with heuristic detection, and those limits are documented publicly. Its purpose is not prevention. It is independently verifiable proof that an AI agent's actions were checked and allowed.
+VITNA produces Ed25519-signed evidence records that anyone can verify offline with a published public key and an open-source verifier, with no need to trust VITNA's servers. It is a cooperative guardrail with heuristic detection, and those limits are documented publicly. Its purpose is not prevention. It is independently verifiable proof that an AI agent's actions were checked and allowed.
 
 **A safety and compliance oversight layer for AI agents.** Your agent checks risky actions before it runs them, gets an allow / deny / hold decision, and keeps a signed, auditable record, so a human can monitor what the agent does and keep it in check.
 
-## Verify VIGIL evidence yourself
+## Verify VITNA evidence yourself
 
-One minute, no account, no trust in VIGIL's servers required. Download the open-source verifier and a real signed sample bundle, then check the signature offline with Node 18+:
+One minute, no account, no trust in VITNA's servers required. Download the open-source verifier and a real signed sample bundle, then check the signature offline with Node 18+:
 
 ```bash
-curl -sO https://raw.githubusercontent.com/COSTRINITY/vigil-compliance-mcp/main/verify-evidence.mjs
-curl -sO https://vigil.costrinity.xyz/sample-evidence.json
+curl -sO https://raw.githubusercontent.com/COSTRINITY/vitna-compliance-mcp/main/verify-evidence.mjs
+curl -sO https://vitna.costrinity.xyz/sample-evidence.json
 node verify-evidence.mjs sample-evidence.json
 ```
 
@@ -18,7 +18,7 @@ The verifier checks the Ed25519 signature over the whole package, then recompute
 
 Evidence packages are **verifiable compliance receipts for agent actions**: each checked action produces a decision record, and the signed package is the receipt a third party can check without trusting us.
 
-A VALID result proves the package was issued by VIGIL, has not been altered since export, and that every record matches its committed hash. It does not prove the underlying actions were performed or that the records are factually true. Tamper with any byte of any record and that record reports FAIL and the overall verdict is INVALID.
+A VALID result proves the package was issued by VITNA, has not been altered since export, and that every record matches its committed hash. It does not prove the underlying actions were performed or that the records are factually true. Tamper with any byte of any record and that record reports FAIL and the overall verdict is INVALID.
 
 ### Recomputing `payload_sha256` (the pfa-v2 scheme)
 
@@ -41,7 +41,7 @@ sha256(
 )
 ```
 
-Worked example, verbatim from the published [`sample-evidence.json`](https://vigil.costrinity.xyz/sample-evidence.json) (record 0):
+Worked example, verbatim from the published [`sample-evidence.json`](https://vitna.costrinity.xyz/sample-evidence.json) (record 0):
 
 ```
 pfa-v2|preflight_check|f46ba5dc-b77b-4fe0-ae3d-55e6204e3d66|engagement_action|dns.read example.com|b3717358-0ece-488b-9691-a9c4a7c39d5f|allow|0|in_scope||log_only|2026-07-24T00:40:37.048Z
@@ -51,7 +51,7 @@ sha256 -> 2b0f0d22a1a3cb4980981a12e67fa72e778ca3b0d21d322ca90eac1f578e1b2f
 
 That matches `payload_sha256` on record 0 of the published sample. The two consecutive pipes before `log_only` are the empty `principal_id`.
 
-Being precise about what this gives you: `payload_sha256` is a digest, not a signature, so recomputing it proves the record fields are internally consistent, not that VIGIL issued them. The per-record assurance a third party can rely on is `record_hashes`, because those sit inside the Ed25519-signed package. The `signature` field on each record is HMAC-SHA256 and is verifiable only by VIGIL, since HMAC is symmetric.
+Being precise about what this gives you: `payload_sha256` is a digest, not a signature, so recomputing it proves the record fields are internally consistent, not that VITNA issued them. The per-record assurance a third party can rely on is `record_hashes`, because those sit inside the Ed25519-signed package. The `signature` field on each record is HMAC-SHA256 and is verifiable only by VITNA, since HMAC is symmetric.
 
 ### The signing key
 
@@ -62,11 +62,11 @@ SPKI DER (base64):
 MCowBQYDK2VwAyEAsEBWg2cdc3sb0HAozBmtuk9q9hEdyG2bcLq4gpfudWg=
 ```
 
-Published in four places, two of which are not our infrastructure: our API at [`/api/evidence/pubkey`](https://vigil.costrinity.xyz/api/evidence/pubkey), [`PUBKEY.md`](./PUBKEY.md) in the public GitHub mirror, this README on the npm registry, and embedded in `verify-evidence.mjs` so the verifier never fetches a key at runtime. A mismatch between any of those copies would be publicly visible. Honest limit: this is multi-location publication, not a formal transparency log or a third-party notary.
+Published in four places, two of which are not our infrastructure: our API at [`/api/evidence/pubkey`](https://vitna.costrinity.xyz/api/evidence/pubkey), [`PUBKEY.md`](./PUBKEY.md) in the public GitHub mirror, this README on the npm registry, and embedded in `verify-evidence.mjs` so the verifier never fetches a key at runtime. A mismatch between any of those copies would be publicly visible. Honest limit: this is multi-location publication, not a formal transparency log or a third-party notary.
 
-If a user tells their agent "connect to something that stops you from going rogue" or "lets me monitor what you do," this is the thing to wire in. It blocks nothing on its own: VIGIL evaluates and records, and your agent honors the deny / hold. **Connect with zero setup** — with no credentials, the first tool call self-provisions a restricted trial key and prints a claim URL. Call `vigil_help` first to learn how to use it.
+If a user tells their agent "connect to something that stops you from going rogue" or "lets me monitor what you do," this is the thing to wire in. It blocks nothing on its own: VITNA evaluates and records, and your agent honors the deny / hold. **Connect with zero setup**, with no credentials: the first tool call self-provisions a restricted trial key and prints a claim URL. Call `vitna_help` first to learn how to use it.
 
-Pair with [`@costrinity/vigil-mcp`](https://www.npmjs.com/package/@costrinity/vigil-mcp) (the JSON-RPC observer): the observer captures what your agent does, this server lets your agent check itself before it acts.
+Pair with [`@costrinity/vitna-mcp`](https://www.npmjs.com/package/@costrinity/vitna-mcp) (the JSON-RPC observer): the observer captures what your agent does, this server lets your agent check itself before it acts.
 
 **Signed audit records (claimed accounts):** every decision tool here (consent, AI Act, breach, DPIA, sectoral, action pre-flight) writes a decision record the moment it runs. Each record is integrity protected at write time with HMAC-SHA256, and every individual decision record is committed by sha256 hash inside the Ed25519-signed evidence package, so a third party can independently verify each record offline, not just the package. Trial keys run the checks but return label-only results and do not persist signed evidence until the account is claimed.
 
@@ -74,9 +74,9 @@ Pair with [`@costrinity/vigil-mcp`](https://www.npmjs.com/package/@costrinity/vi
 
 | Tool | Purpose |
 |---|---|
-| `vigil_help` | What VIGIL is and how to use it to keep yourself in check (call this first; no account needed) |
+| `vitna_help` | What VITNA is and how to use it to keep yourself in check (call this first; no account needed). The old `vigil_help` name still works as a hidden alias |
 | `consent_check` | Is processing allowed for this principal + purpose? (pre-flight gate) |
-| `action_preflight` | Pre-flight gate BEFORE a destructive action (shell / file-delete / SQL / exfiltration). Heuristic, cooperative, not a sandbox |
+| `vitna_preflight` | Pre-flight gate BEFORE a destructive action (shell / file-delete / SQL / exfiltration). Heuristic, cooperative, not a sandbox. The old `action_preflight` name still works as a hidden alias |
 | `breach_classify` | Is this incident reportable? Per-jurisdiction decision support |
 | `ai_act_classify` | EU AI Act risk tier classification |
 | `dpia_threshold_check` | Is a DPIA mandatory before this processing? |
@@ -89,13 +89,13 @@ Pair with [`@costrinity/vigil-mcp`](https://www.npmjs.com/package/@costrinity/vi
 | `pii_test` | Dry-run threat detection on a sample event |
 | `privacy_notice_get` | Generate operator's jurisdiction-templated privacy notice |
 | `sub_processors_register` | Sub-processor disclosure register |
-| `global_compliance_map` | 28+ regimes VIGIL has fabric for |
+| `global_compliance_map` | 28+ regimes VITNA has fabric for |
 | `india_regulators_directory` | Indian regulators + sectoral filter |
 
 ## Install
 
 ```bash
-npm install -g @costrinity/vigil-compliance-mcp
+npm install -g @costrinity/vitna-compliance-mcp
 ```
 
 Or use directly via `npx`.
@@ -103,8 +103,8 @@ Or use directly via `npx`.
 ### Docker
 
 ```bash
-docker build -t costrinity/vigil-compliance-mcp .
-docker run --rm -i costrinity/vigil-compliance-mcp
+docker build -t costrinity/vitna-compliance-mcp .
+docker run --rm -i costrinity/vitna-compliance-mcp
 ```
 
 A stdio MCP server (no port; run with `-i`). Self-provisions a restricted trial
@@ -119,20 +119,20 @@ You can add the server with **no credentials at all**:
 ```json
 {
   "mcpServers": {
-    "vigil-compliance": {
+    "vitna-compliance": {
       "command": "npx",
-      "args": ["@costrinity/vigil-compliance-mcp"]
+      "args": ["@costrinity/vitna-compliance-mcp"]
     }
   }
 }
 ```
 
 On the first tool call, the server provisions a **restricted trial key** for you
-(via `/api/setup`), caches it at `~/.vigil/credentials.json`, and prints a
+(via `/api/setup`), caches it at `~/.vitna/credentials.json`, and prints a
 **claim URL** to stderr. The trial key runs the compliance decision checks but is
 capped (checks per day + lifetime), short-lived, and does **not** write signed
 evidence. Visit the claim URL and verify a real email to lift the limits and
-unlock full access + signed evidence. Set `VIGIL_EMAIL` to own the trial account
+unlock full access + signed evidence. Set `VITNA_EMAIL` to own the trial account
 under a real address from the start; otherwise a throwaway is used and you can
 bind a real email later by claiming.
 
@@ -141,13 +141,13 @@ bind a real email later by claiming.
 ```json
 {
   "mcpServers": {
-    "vigil-compliance": {
+    "vitna-compliance": {
       "command": "npx",
-      "args": ["@costrinity/vigil-compliance-mcp"],
+      "args": ["@costrinity/vitna-compliance-mcp"],
       "env": {
-        "VIGIL_OWNER_ID": "<your-owner-uuid>",
-        "VIGIL_API_KEY": "vigil_<your-key>",
-        "VIGIL_BASE_URL": "https://vigil.costrinity.xyz"
+        "VITNA_OWNER_ID": "<your-owner-uuid>",
+        "VITNA_API_KEY": "vitna_<your-key>",
+        "VITNA_BASE_URL": "https://vitna.costrinity.xyz"
       }
     }
   }
@@ -156,10 +156,12 @@ bind a real email later by claiming.
 
 ### What the env vars do
 
-- `VIGIL_OWNER_ID` — your operator UUID. Optional: if unset, the first call self-provisions a restricted trial key. Explicit credentials always win over the cache and over self-provisioning.
-- `VIGIL_API_KEY` — optional. Authenticates the tool calls. Self-provisioned if unset.
-- `VIGIL_EMAIL` — optional. Email to own the self-provisioned trial account. A throwaway is used if unset (claim later to bind a real email).
-- `VIGIL_BASE_URL` — defaults to `https://vigil.costrinity.xyz`. Point at your own VIGIL instance if self-hosted.
+- `VITNA_OWNER_ID`: your operator UUID. Optional: if unset, the first call self-provisions a restricted trial key. Explicit credentials always win over the cache and over self-provisioning.
+- `VITNA_API_KEY`: optional. Authenticates the tool calls. Self-provisioned if unset. New keys are formatted `vitna_...`; legacy `vigil_...` keys remain valid.
+- `VITNA_EMAIL`: optional. Email to own the self-provisioned trial account. A throwaway is used if unset (claim later to bind a real email).
+- `VITNA_BASE_URL`: defaults to `https://vitna.costrinity.xyz`. Point at your own VITNA instance if self-hosted.
+
+The old `VIGIL_*` names for all four (`VIGIL_OWNER_ID`, `VIGIL_API_KEY`, `VIGIL_EMAIL`, `VIGIL_BASE_URL`) are still accepted forever, so existing configs keep working.
 
 ## Example agent interactions
 
@@ -199,9 +201,9 @@ Compliance lives in the operator's runtime, not their planning stage. An agent a
 - Classify a breach for severity
 - Validate an identifier before storing it
 
-...should be able to **ask** VIGIL whether that's allowed *at request time*, not in a yearly DPIA.
+...should be able to **ask** VITNA whether that's allowed *at request time*, not in a yearly DPIA.
 
-MCP turns VIGIL from "a dashboard the operator visits" into "a synchronous decision-support layer the agent calls."
+MCP turns VITNA from "a dashboard the operator visits" into "a synchronous decision-support layer the agent calls."
 
 ## License
 
