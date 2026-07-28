@@ -50,6 +50,25 @@ A VALID result proves the package was issued by VITNA and has not been altered
 since export, and that every record matches its committed hash. It does not
 prove the actions were performed or that the records are factually true.
 
+### Completeness is separate from authenticity
+
+A signature proves a package is authentic. It says nothing about whether the
+package contains *every* record in the scope it claims to cover. Those are
+different questions and the verifier answers them separately:
+
+| Verdict | Meaning |
+|---|---|
+| `VALID and COMPLETE` | Authentic, and contains every record matching its scope. |
+| `VALID but PARTIAL` | Authentic, but a **subset** of its own stated scope. The verifier prints how many records are missing. Do not treat it as a full record of the period it claims to cover. |
+| `VALID, completeness unknown` | Authentic, but the package predates completeness attestation (format `vigil-evidence-v1`). Whether it is complete cannot be determined from the package. |
+
+Packages in format `vigil-evidence-v2` and later carry a `completeness` block
+**inside the signed envelope**, so the signature covers it and a partial
+package cannot be presented as a whole one.
+
+`sample-evidence.json` linked above is a **v1** package, so it verifies as
+`VALID, completeness unknown`. That is the correct output, not an error.
+
 ## What is never published
 
 The private signing key. It lives only in server-side environment

@@ -75,9 +75,45 @@ if (hashes && records) {
   console.log('  per-record checks   : not available (legacy bundle without record_hashes; package-level verification only)');
 }
 
+// Completeness. A signature proves authenticity and integrity; it says
+// nothing about whether the package holds every record in its scope. An
+// export capped at 1000 records used to verify VALID and look identical to
+// a complete one, so the verdict below distinguishes the two explicitly.
+const completeness = pkg.completeness ?? null;
+console.log('');
+if (completeness) {
+  console.log('  completeness        :', completeness.complete ? 'COMPLETE' : 'PARTIAL');
+  console.log('    records included  :', completeness.records_included);
+  console.log('    matching scope    :', completeness.records_matching_scope ?? 'unknown');
+  if (!completeness.complete) {
+    const missing =
+      typeof completeness.records_matching_scope === 'number'
+        ? completeness.records_matching_scope - (completeness.records_included ?? 0)
+        : 'an unknown number of';
+    console.log('    MISSING           : ' + missing + ' record(s) are NOT in this package');
+  }
+} else {
+  console.log('  completeness        : NOT ATTESTED (pre-v2 package)');
+  console.log('    This package predates completeness attestation. It may be a');
+  console.log('    complete export or a silently truncated one; the format does');
+  console.log('    not say, and the signature cannot tell you.');
+}
+
 console.log('');
 if (pkgOk && recordsOk) {
-  console.log('VALID: issued by VITNA, not altered since export' + (hashes ? ', and every record matches its committed hash.' : '.'));
+  const line = 'issued by VITNA, not altered since export' + (hashes ? ', and every record matches its committed hash.' : '.');
+  if (completeness && completeness.complete) {
+    console.log('VALID and COMPLETE: ' + line);
+  } else if (completeness) {
+    console.log('VALID but PARTIAL: ' + line);
+    console.log('       This package is a SUBSET of its own stated scope. Every record in');
+    console.log('       it is authentic, but records matching the scope are missing. Do not');
+    console.log('       treat it as a full record of the period it claims to cover.');
+  } else {
+    console.log('VALID, completeness unknown: ' + line);
+    console.log('       Pre-v2 package: whether it contains every record in its scope is');
+    console.log('       not attested and cannot be determined from the package.');
+  }
   console.log('       (Does NOT prove the underlying records are factually true.)');
   process.exit(0);
 }
