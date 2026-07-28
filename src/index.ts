@@ -504,6 +504,21 @@ async function callVitna(method: string, path: string, body?: unknown): Promise<
   }
 }
 
+/**
+ * Did the server refuse to evaluate this call? Returns the error code plus the
+ * original body when so, null when the call produced a real decision.
+ * Recognises both the API's error envelope and the raw-text fallback.
+ */
+function isRefusal(result: unknown): { code: string; body: unknown } | null {
+  if (!result || typeof result !== 'object') return null;
+  const r = result as Record<string, unknown>;
+  if (typeof r.error === 'string') return { code: r.error, body: r };
+  if (typeof r._status === 'number' && r._status >= 400) {
+    return { code: `http_${r._status}`, body: r };
+  }
+  return null;
+}
+
 // ─── Onboarding + connection notice ────────────────────────────────
 
 /** Plain-language guide the agent gets from vigil_help. No network / auth. */
@@ -614,6 +629,27 @@ async function handle(req: JsonRpcReq): Promise<void> {
           err(id, -32603, `tool ${tool.name} has no handler`);
           return;
         }
+        // FAIL CLOSED. When the server refuses the check (expired trial key,
+        // cap reached, paused, bad credentials) the reply carries an `error`
+        // and NO `decision`. Agents are told "decision=allowed means proceed;
+        // blocked or flagged means STOP", so an error used to leave them with
+        // neither value and they would fall through and act. A guardrail that
+        // cannot evaluate must read as STOP, so we synthesise a
+        // machine-readable stop and set isError for clients that branch on it.
+        const failedCheck = isRefusal(result);
+        if (failedCheck && !tool.local) {
+          result = {
+            decision: 'blocked',
+            effect: 'block',
+            flagged: true,
+            reason: `VITNA could not evaluate this action: ${failedCheck.code}`,
+            enforced_by: 'caller',
+            stop: true,
+            note: 'This is a fail-closed stop, not a threat verdict. VITNA did not evaluate the action, so it must not be treated as allowed. Resolve the error below, then re-check.',
+            ...(failedCheck.body as Record<string, unknown>),
+          };
+        }
+
         const content: Array<{ type: 'text'; text: string }> = [];
         // On the tool call that triggered self-provisioning, lead with a
         // plain-language connection notice the agent can relay to the user.
@@ -622,7 +658,7 @@ async function handle(req: JsonRpcReq): Promise<void> {
           content.push({ type: 'text', text: connectionNotice() });
         }
         content.push({ type: 'text', text: JSON.stringify(result, null, 2) });
-        ok(id, { content });
+        ok(id, failedCheck ? { content, isError: true } : { content });
         return;
       }
 

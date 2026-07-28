@@ -1,8 +1,8 @@
 # @costrinity/vitna-compliance-mcp
 
-VITNA produces Ed25519-signed evidence records that anyone can verify offline with a published public key and an open-source verifier, with no need to trust VITNA's servers. It is a cooperative guardrail with heuristic detection, and those limits are documented publicly. Its purpose is not prevention. It is independently verifiable proof that an AI agent's actions were checked and allowed.
+**A compliance and audit-evidence layer for AI agents.** Your agent checks risky actions before it runs them, gets an allow / deny / hold decision, and every decision produces an Ed25519-signed evidence record that anyone can verify offline — **no account, and no trust in VITNA's servers required**. The public key is published, the verifier is open source, and the three commands below prove it in about a minute.
 
-**A safety and compliance oversight layer for AI agents.** Your agent checks risky actions before it runs them, gets an allow / deny / hold decision, and keeps a signed, auditable record, so a human can monitor what the agent does and keep it in check.
+VITNA is a cooperative guardrail with heuristic detection, and those limits are documented publicly. Its purpose is not prevention. It is independently verifiable proof that an AI agent's actions were checked and allowed.
 
 ## Verify VITNA evidence yourself
 
@@ -207,4 +207,4 @@ MCP turns VITNA from "a dashboard the operator visits" into "a synchronous decis
 
 ## License
 
-MIT © COSTRINITY (Indigenous-owned software studio, Regina, Saskatchewan, Treaty 4 territory)
+MIT © COSTRINITY (Indigenous-owned software studio in Regina, Saskatchewan, Treaty 4 territory, Canada)

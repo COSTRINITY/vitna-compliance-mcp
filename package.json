@@ -1,8 +1,8 @@
 {
   "name": "@costrinity/vitna-compliance-mcp",
   "mcpName": "io.github.COSTRINITY/vitna-compliance-mcp",
-  "version": "0.3.0",
-  "description": "VITNA by COSTRINITY produces Ed25519-signed evidence records that anyone can verify offline with a published public key and an open-source verifier, with no need to trust VITNA's servers. Your agent checks a risky action before it runs and gets an allow, block, or hold decision. It is a cooperative guardrail with heuristic detection, and those limits are documented publicly. Zero setup: the first tool call self-provisions a restricted trial key.",
+  "version": "0.3.2",
+  "description": "Compliance and audit-evidence layer for AI agents. Pre-flight checks return allow, block, or hold before a risky action runs, and every decision produces an Ed25519-signed evidence record that anyone can verify offline with the published public key and open-source verifier - no account, and no trust in VITNA's servers required. A cooperative guardrail with heuristic detection and publicly documented limits, mapped to the EU AI Act, GDPR, and India's DPDP across 13 jurisdictions. Zero setup: the first tool call self-provisions a restricted trial key.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
@@ -17,31 +17,23 @@
   "keywords": [
     "mcp",
     "model-context-protocol",
-    "verifiable-compliance-receipts",
-    "agent-action-receipts",
-    "compliance-receipts",
-    "ai-safety",
-    "safety",
-    "guardrails",
-    "agent-safety",
-    "oversight",
-    "monitoring",
-    "audit",
     "compliance",
-    "dpdp",
+    "eu-ai-act",
+    "audit",
+    "evidence",
+    "ai-governance",
     "gdpr",
-    "ai-act",
-    "privacy",
+    "agent-compliance",
+    "article-50",
     "ai-agents",
+    "dpdp",
     "vitna",
-    "vigil",
-    "costrinity",
-    "indigenous-owned"
+    "costrinity"
   ],
   "engines": {
     "node": ">=18"
   },
-  "author": "COSTRINITY (Indigenous-owned software studio, Regina, Saskatchewan, Treaty 4 territory)",
+  "author": "COSTRINITY (Indigenous-owned software studio in Regina, Saskatchewan, Treaty 4 territory, Canada)",
   "license": "MIT",
   "homepage": "https://vitna.costrinity.xyz/why-vitna",
   "repository": {
@@ -59,5 +51,8 @@
   ],
   "publishConfig": {
     "access": "public"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
   }
 }

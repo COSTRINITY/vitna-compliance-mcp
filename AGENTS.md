@@ -43,6 +43,9 @@ real email to lift the limits and unlock signed, auditable records.
 
 ## Honesty
 
-VITNA is a cooperative guardrail, not a sandbox. `action_preflight` is heuristic
+VITNA is a cooperative guardrail, not a sandbox. `vitna_preflight` is heuristic
 pattern matching, so novel or obfuscated payloads can pass. It cannot block on its
 own; enforcement is yours.
+
+Built by COSTRINITY (Indigenous-owned software studio in Regina, Saskatchewan,
+Treaty 4 territory, Canada).
