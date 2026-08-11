@@ -3,18 +3,32 @@
   "name": "xyz.costrinity/vitna-compliance-preflight",
   "title": "VITNA — Agent Compliance Preflight",
   "description": "Pre-action allow/deny for AI agents. 24 statutes, 13 jurisdictions: EU AI Act, GDPR, DPDP.",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "websiteUrl": "https://vitna.costrinity.xyz",
   "repository": {
     "url": "https://github.com/COSTRINITY/vitna-compliance-mcp",
     "source": "github"
   },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://vitna.costrinity.xyz/api/mcp",
+      "headers": [
+        {
+          "name": "Authorization",
+          "description": "Bearer <your VITNA API key>. Discovery (initialize, tools/list) and vitna_help work without it; every governed decision tool requires it. Get a key free at https://vitna.costrinity.xyz/dashboard. X-API-Key is also accepted.",
+          "isRequired": false,
+          "isSecret": true
+        }
+      ]
+    }
+  ],
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@costrinity/vitna-compliance-mcp",
-      "version": "0.3.3",
+      "version": "0.3.4",
       "transport": {
         "type": "stdio"
       },

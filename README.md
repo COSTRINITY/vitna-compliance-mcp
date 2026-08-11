@@ -113,8 +113,34 @@ Pair with [`@costrinity/vitna-mcp`](https://www.npmjs.com/package/@costrinity/vi
 | `pii_test` | Dry-run threat detection on a sample event |
 | `privacy_notice_get` | Generate operator's jurisdiction-templated privacy notice |
 | `sub_processors_register` | Sub-processor disclosure register |
-| `global_compliance_map` | 28+ regimes VITNA has fabric for |
+| `global_compliance_map` | The compliance catalogue: 28 entries covering 24 named statutes |
 | `india_regulators_directory` | Indian regulators + sectoral filter |
+
+## Two ways to connect
+
+**Remote (no install).** Point any MCP client that supports remote servers at:
+
+```
+https://vitna.costrinity.xyz/api/mcp
+```
+
+Streamable HTTP. Send your key as `Authorization: Bearer vitna_...` (`X-API-Key` also works). Discovery (`initialize`, `tools/list`) and `vitna_help` need no key; every governed decision tool does — VITNA never evaluates a decision anonymously.
+
+```json
+{
+  "mcpServers": {
+    "vitna-compliance": {
+      "type": "streamable-http",
+      "url": "https://vitna.costrinity.xyz/api/mcp",
+      "headers": { "Authorization": "Bearer vitna_YOUR_KEY" }
+    }
+  }
+}
+```
+
+**Local (stdio).** `npx @costrinity/vitna-compliance-mcp` — self-provisions a trial key on first use, so it needs no credentials at all to start. See below.
+
+Both transports serve the identical 22 tools from one catalogue; a build gate fails if they ever diverge.
 
 ## Install
 

@@ -1,7 +1,7 @@
 {
   "name": "@costrinity/vitna-compliance-mcp",
   "mcpName": "xyz.costrinity/vitna-compliance-preflight",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Pre-action compliance for AI agents: allow, block or hold before your agent acts. 24 named statutes across 13 jurisdictions including the EU AI Act, GDPR and DPDP. 22 MCP tools. Every decision returns an Ed25519-signed receipt you can verify offline.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
