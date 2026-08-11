@@ -1,10 +1,32 @@
 # @costrinity/vitna-compliance-mcp
 
-**A compliance and audit-evidence layer for AI agents.** Your agent checks risky actions before it runs them, gets an allow / deny / hold decision, and every decision produces an Ed25519-signed evidence record that anyone can verify offline — **no account, and no trust in VITNA's servers required**. The public key is published, the verifier is open source, and the three commands below prove it in about a minute.
+**Pre-action compliance for AI agents: allow, block or hold — before your agent acts.**
+
+Most compliance servers answer questions *about* regulations. This one answers one question *about the action your agent is holding right now*: may it run? Your agent calls a check, gets `allowed` / `blocked` / `flagged` back synchronously, and decides. VITNA evaluates and records; your system enforces.
+
+## Coverage
+
+| | |
+|---|---|
+| **24 named statutes** | across **13 jurisdictions** |
+| **EU AI Act** (Reg 2024/1689) | risk-tier classification before you build or ship |
+| **GDPR** + **UK GDPR** | DPIA thresholds, breach reportability, ROPA |
+| **DPDP** (India, 2023) | §16 cross-border status, §8 breach path |
+| **LGPD · PDPA-SG · APPI · PIPEDA + Law 25 · PIPL · PIPA-KR · NDPA · APP-AU · CPRA** | jurisdiction packs |
+| **HIPAA · GLBA · COPPA · FERPA · FCRA · SOX** | US federal sectoral applicability |
+| **RBI · SEBI · IRDAI · TRAI/DoT · PFRDA** | Indian sectoral regulators |
+| **16 US state privacy laws** | plus breach deadlines for 21 states |
+| **22 MCP tools** | 6 identifier validators, 15 stateless helpers |
+
+Readiness scorecards (pre-audit, not certifications) additionally cover NIST Privacy Framework, SOC 2, ISO/IEC 27001 and PCI DSS v4.0.
+
+Every count above is derived from the code and enforced by a build gate — if an implementation is removed, the build fails before the number can go stale. See "Honest limits" below for what these numbers do *not* mean.
 
 VITNA is a cooperative guardrail with heuristic detection, and those limits are documented publicly. Its purpose is not prevention. It is independently verifiable proof that an AI agent's actions were checked and allowed.
 
 ## Verify VITNA evidence yourself
+
+Every decision also produces an Ed25519-signed evidence record that anyone can verify offline — **no account, and no trust in VITNA's servers required**. The public key is published, the verifier is open source, and the three commands below prove it in about a minute.
 
 One minute, no account, no trust in VITNA's servers required. Download the open-source verifier and a real signed sample bundle, then check the signature offline with Node 18+:
 
@@ -69,6 +91,8 @@ If a user tells their agent "connect to something that stops you from going rogu
 Pair with [`@costrinity/vitna-mcp`](https://www.npmjs.com/package/@costrinity/vitna-mcp) (the JSON-RPC observer): the observer captures what your agent does, this server lets your agent check itself before it acts.
 
 **Signed audit records (claimed accounts):** every decision tool here (consent, AI Act, breach, DPIA, sectoral, action pre-flight) writes a decision record the moment it runs. Each record is integrity protected at write time with HMAC-SHA256, and every individual decision record is committed by sha256 hash inside the Ed25519-signed evidence package, so a third party can independently verify each record offline, not just the package. Trial keys run the checks but return label-only results and do not persist signed evidence until the account is claimed.
+
+**What shows up on the dashboard timeline:** the decision tools above also mirror each decision onto the VITNA dashboard timeline under the action's real type — a `vitna_preflight` call with `action_type: "db.query"` appears as a `db.query` row with its verdict, not as an anonymous compliance entry. The timeline is a view; the signed audit record is the evidence. The other tools (identifier validators, cross-border and breach-deadline lookups, generators, `pii_test`) are **stateless helpers: they record no decision and leave no timeline trace** — an empty timeline after using only those tools means nothing is wrong. Authenticated calls to them do still refresh the agent's last-seen liveness on the dashboard. `vitna_help` runs entirely locally and makes no API call at all. To have your agent's *ordinary* activity (uploads, tool calls, LLM calls) appear on the timeline too, pair this server with the [`@costrinity/vitna-mcp`](https://www.npmjs.com/package/@costrinity/vitna-mcp) observer or post events to `POST /api/ingest`.
 
 ## What it gives your agent
 
@@ -204,6 +228,18 @@ Compliance lives in the operator's runtime, not their planning stage. An agent a
 ...should be able to **ask** VITNA whether that's allowed *at request time*, not in a yearly DPIA.
 
 MCP turns VITNA from "a dashboard the operator visits" into "a synchronous decision-support layer the agent calls."
+
+## Honest limits
+
+What the numbers above do **not** mean:
+
+- **Readiness ≠ certified.** SOC 2, ISO/IEC 27001, HIPAA and PCI DSS are pre-audit *readiness scorecards*. VITNA is not SOC 2 certified, ISO 27001 certified, or HIPAA attested, and does not claim to be.
+- **Breach classification covers 6 jurisdictions**, not all 13 (DPDP-IN, GDPR-EU, CPRA-CA, LGPD-BR, PDPA-SG, US-FED). The other jurisdiction packs cover other checks.
+- **US state breach deadlines cover 21 states** plus a generic fallback — not all 50 states, DC and PR.
+- **"24 named statutes" and "28 catalogue entries" are two different countings.** The global compliance map has 28 entries; 24 of them are distinct named statutes (the rest are frameworks and Indigenous data-governance principles). Prose here uses 24.
+- **Three counts that are easy to confuse:** 22 MCP tools, 22 identifier-validator API routes (only 6 of which are exposed as MCP tools here), and 11 PII detectors. They are unrelated sets.
+- **Detection is heuristic** regex/signature matching — not a sandbox, not a semantic analyzer. Novel or obfuscated payloads can pass. Use it as one layer, not the only one.
+- **VITNA does not enforce.** It returns a decision; honoring a block or hold is your system's job.
 
 ## License
 

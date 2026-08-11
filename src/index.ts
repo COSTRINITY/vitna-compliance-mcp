@@ -70,7 +70,12 @@ let VITNA_CLAIM_URL = '';
 let justProvisioned = false;
 
 const SERVER_NAME = 'vitna-compliance';
-const SERVER_VERSION = '0.3.0';
+// Keep in lockstep with package.json "version" — this string is what every
+// client sees in the MCP initialize handshake and in our outbound User-Agent.
+// It silently said 0.3.0 across the 0.3.1 and 0.3.2 releases, which made
+// version telemetry unreliable; tests/claims-gate.test.ts now fails the build
+// if the two ever disagree again.
+const SERVER_VERSION = '0.3.3';
 
 /**
  * Tool names from the VIGIL era, mapped to their VITNA names. Resolved in
@@ -100,7 +105,7 @@ const TOOLS: ToolDef[] = [
   {
     name: 'vitna_help',
     description:
-      "What is VITNA and how do I use it to keep myself in check? Call this FIRST after connecting to learn the safety and oversight checks available: how to check risky actions BEFORE running them, what a deny / hold decision means, trial vs claimed mode, and how the user can monitor and audit what you do. Lightweight, no account or network needed.",
+      "What is VITNA and how do I use it to keep myself in check? Call this FIRST after connecting to learn the safety and oversight checks available: how to check risky actions BEFORE running them, what a deny / hold decision means, trial vs claimed mode, and how the user can monitor and audit what you do. Runs entirely locally: no account, no API call, and no dashboard timeline trace.",
     inputSchema: { type: 'object', properties: {} },
     local: () => vigilHelp(),
   },
@@ -232,7 +237,7 @@ const TOOLS: ToolDef[] = [
   {
     name: 'india_cross_border_status',
     description:
-      "Before you transfer personal data out of India, check the destination country's DPDP §16 status (permitted / restricted / sectoral_restricted) plus any RBI / SEBI / IRDAI caveats. Pass the ISO-3166 alpha-2 country code (e.g. US).",
+      "Before you transfer personal data out of India, check the destination country's DPDP §16 status (permitted / restricted / sectoral_restricted) plus any RBI / SEBI / IRDAI caveats. Pass the ISO-3166 alpha-2 country code (e.g. US). Stateless lookup: records no decision and leaves no dashboard timeline trace.",
     inputSchema: {
       type: 'object',
       required: ['country'],
@@ -246,7 +251,7 @@ const TOOLS: ToolDef[] = [
   {
     name: 'japan_cross_border_status',
     description:
-      "Before you transfer personal data out of Japan, check the destination country's APPI Art 28 status (adequacy / standard basis / high scrutiny). Pass the ISO-3166 alpha-2 country code.",
+      "Before you transfer personal data out of Japan, check the destination country's APPI Art 28 status (adequacy / standard basis / high scrutiny). Pass the ISO-3166 alpha-2 country code. Stateless lookup: records no decision and leaves no dashboard timeline trace.",
     inputSchema: {
       type: 'object',
       required: ['country'],
@@ -262,7 +267,7 @@ const TOOLS: ToolDef[] = [
   {
     name: 'us_state_breach_deadline',
     description:
-      "Quick reference lookup of a single US state's breach-notification window, AG recipient and resident threshold (e.g. 'CA' gives 500 residents, CA AG, without unreasonable delay). This is a static table, not an incident ruling. When you have the actual incident facts and need a reportable / not-reportable decision with reasoning, use breach_classify instead.",
+      "Quick reference lookup of a single US state's breach-notification window, AG recipient and resident threshold (e.g. 'CA' gives 500 residents, CA AG, without unreasonable delay). This is a static table, not an incident ruling. When you have the actual incident facts and need a reportable / not-reportable decision with reasoning, use breach_classify instead. Stateless lookup: records no decision and leaves no dashboard timeline trace.",
     inputSchema: {
       type: 'object',
       required: ['state'],
@@ -278,7 +283,7 @@ const TOOLS: ToolDef[] = [
   {
     name: 'aadhaar_mask',
     description:
-      "Mask + Verhoeff-validate an Aadhaar number. Returns masked form, validity, and an owner-scoped reference token. No persistence of the raw value.",
+      "Mask + Verhoeff-validate an Aadhaar number. Returns masked form, validity, and an owner-scoped reference token. No persistence of the raw value. Stateless validator: records no decision and leaves no dashboard timeline trace.",
     inputSchema: {
       type: 'object',
       required: ['aadhaar'],
@@ -288,38 +293,38 @@ const TOOLS: ToolDef[] = [
   },
   {
     name: 'pan_classify',
-    description: 'Classify a PAN entity type from the 4th character (P=Person, C=Company, H=HUF, F=Firm, ...).',
+    description: 'Classify a PAN entity type from the 4th character (P=Person, C=Company, H=HUF, F=Firm, ...). Stateless validator: records no decision and leaves no dashboard timeline trace.',
     inputSchema: { type: 'object', required: ['pan'], properties: { pan: { type: 'string' } } },
     call: (input) => ({ method: 'POST', path: '/api/india/pan-classify', body: input }),
   },
   {
     name: 'gstin_validate',
-    description: 'Validate a GSTIN format + mod-36 check digit; returns state code lookup.',
+    description: 'Validate a GSTIN format + mod-36 check digit; returns state code lookup. Stateless validator: records no decision and leaves no dashboard timeline trace.',
     inputSchema: { type: 'object', required: ['gstin'], properties: { gstin: { type: 'string' } } },
     call: (input) => ({ method: 'POST', path: '/api/india/gstn-validate', body: input }),
   },
   {
     name: 'cpf_validate',
-    description: 'Validate a Brazilian CPF (mod-11 check digits, rejects all-same).',
+    description: 'Validate a Brazilian CPF (mod-11 check digits, rejects all-same). Stateless validator: records no decision and leaves no dashboard timeline trace.',
     inputSchema: { type: 'object', required: ['cpf'], properties: { cpf: { type: 'string' } } },
     call: (input) => ({ method: 'POST', path: '/api/brazil/cpf-validate', body: input }),
   },
   {
     name: 'sin_validate',
-    description: 'Validate a Canadian SIN (Luhn checksum); returns series region + masked form.',
+    description: 'Validate a Canadian SIN (Luhn checksum); returns series region + masked form. Stateless validator: records no decision and leaves no dashboard timeline trace.',
     inputSchema: { type: 'object', required: ['sin'], properties: { sin: { type: 'string' } } },
     call: (input) => ({ method: 'POST', path: '/api/canada/sin-validate', body: input }),
   },
   {
     name: 'iban_validate',
-    description: 'Validate an IBAN format + ISO 7064 mod-97 check digit; supports 66 countries.',
+    description: 'Validate an IBAN format + ISO 7064 mod-97 check digit; supports 71 countries. Stateless validator: records no decision and leaves no dashboard timeline trace.',
     inputSchema: { type: 'object', required: ['iban'], properties: { iban: { type: 'string' } } },
     call: (input) => ({ method: 'POST', path: '/api/eu/iban-validate', body: input }),
   },
   {
     name: 'pii_test',
     description:
-      "Dry-run VITNA's PII / threat detection on a sample event before you send real data, to preview what would be tagged, how it would be redacted, and whether severity would escalate. Nothing is persisted and nothing is filtered: a safe rehearsal you act on, not an enforced gate.",
+      "Dry-run VITNA's PII / threat detection on a sample event before you send real data, to preview what would be tagged, how it would be redacted, and whether severity would escalate. Nothing is persisted and nothing is filtered: a safe rehearsal you act on, not an enforced gate — it records no decision and leaves no dashboard timeline trace.",
     inputSchema: {
       type: 'object',
       required: ['sample_event'],
@@ -335,7 +340,7 @@ const TOOLS: ToolDef[] = [
   {
     name: 'privacy_notice_get',
     description:
-      "Generate the operator's jurisdiction-templated privacy notice. Returns markdown or JSON.",
+      "Generate the operator's jurisdiction-templated privacy notice. Returns markdown or JSON. Stateless generator: records no decision and leaves no dashboard timeline trace.",
     inputSchema: {
       type: 'object',
       properties: { format: { type: 'string', enum: ['md', 'json'] } },
@@ -347,19 +352,19 @@ const TOOLS: ToolDef[] = [
   },
   {
     name: 'sub_processors_register',
-    description: "Return the public sub-processor register (Supabase, Vercel, Resend, etc.).",
+    description: "Return the public sub-processor register (Supabase, Vercel, Resend, etc.). Stateless lookup: records no decision and leaves no dashboard timeline trace.",
     inputSchema: { type: 'object', properties: {} },
     call: () => ({ method: 'GET', path: '/api/compliance/sub-processors?format=json' }),
   },
   {
     name: 'global_compliance_map',
-    description: "Master catalogue of every privacy/security/sectoral regime VITNA has fabric for (28+ regimes).",
+    description: "Master catalogue of every privacy/security/sectoral regime VITNA has fabric for (28 entries covering 24 named statutes). Stateless lookup: records no decision and leaves no dashboard timeline trace.",
     inputSchema: { type: 'object', properties: {} },
     call: () => ({ method: 'GET', path: '/api/compliance/global-status' }),
   },
   {
     name: 'india_regulators_directory',
-    description: "Static reference directory of Indian data and sector regulators (DPB, RBI, SEBI, IRDAI, TRAI, DoT, PFRDA, MeitY, MCA), optionally filtered by sector: a lookup of who exists and what they cover. To instead work out which of them apply to a specific processing activity, use india_sectoral_check.",
+    description: "Static reference directory of Indian data and sector regulators (DPB, RBI, SEBI, IRDAI, TRAI, DoT, PFRDA, MeitY, MCA), optionally filtered by sector: a lookup of who exists and what they cover. To instead work out which of them apply to a specific processing activity, use india_sectoral_check. Stateless lookup: records no decision and leaves no dashboard timeline trace.",
     inputSchema: {
       type: 'object',
       properties: { sector: { type: 'string' } },

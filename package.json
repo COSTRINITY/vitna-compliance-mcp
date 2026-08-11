@@ -1,8 +1,8 @@
 {
   "name": "@costrinity/vitna-compliance-mcp",
-  "mcpName": "io.github.COSTRINITY/vitna-compliance-mcp",
-  "version": "0.3.2",
-  "description": "Compliance and audit-evidence layer for AI agents. Pre-flight checks return allow, block, or hold before a risky action runs, and every decision produces an Ed25519-signed evidence record that anyone can verify offline with the published public key and open-source verifier - no account, and no trust in VITNA's servers required. A cooperative guardrail with heuristic detection and publicly documented limits, mapped to the EU AI Act, GDPR, and India's DPDP across 13 jurisdictions. Zero setup: the first tool call self-provisions a restricted trial key.",
+  "mcpName": "xyz.costrinity/vitna-compliance-preflight",
+  "version": "0.3.3",
+  "description": "Pre-action compliance for AI agents: allow, block or hold before your agent acts. 24 named statutes across 13 jurisdictions including the EU AI Act, GDPR and DPDP. 22 MCP tools. Every decision returns an Ed25519-signed receipt you can verify offline.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
