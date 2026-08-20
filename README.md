@@ -1,5 +1,15 @@
 # @costrinity/vitna-compliance-mcp
 
+> **Renamed from VIGIL.** This package was formerly published as
+> `@costrinity/vigil-compliance-mcp` and this repo was formerly
+> `COSTRINITY/vigil-compliance-mcp`. **The old package name does not exist on
+> npm** — anything still pointing at it will fail to install. Directory
+> listings that show the VIGIL name are stale snapshots of this repo.
+>
+> Current package: **`@costrinity/vitna-compliance-mcp`**
+> Registry entry: **`xyz.costrinity/vitna-compliance-preflight`**
+> Site: **https://vitna.costrinity.xyz**
+
 **Pre-action compliance for AI agents: allow, block or hold — before your agent acts.**
 
 Most compliance servers answer questions *about* regulations. This one answers one question *about the action your agent is holding right now*: may it run? Your agent calls a check, gets `allowed` / `blocked` / `flagged` back synchronously, and decides. VITNA evaluates and records; your system enforces.
@@ -23,6 +33,20 @@ Readiness scorecards (pre-audit, not certifications) additionally cover NIST Pri
 Every count above is derived from the code and enforced by a build gate — if an implementation is removed, the build fails before the number can go stale. See "Honest limits" below for what these numbers do *not* mean.
 
 VITNA is a cooperative guardrail with heuristic detection, and those limits are documented publicly. Its purpose is not prevention. It is independently verifiable proof that an AI agent's actions were checked and allowed.
+
+## Free checkers — no install, no account
+
+Two questions people usually have to answer *before* they need any of this. Both
+run entirely in the browser, take a few questions, and store nothing.
+
+| | |
+|---|---|
+| **[Does the 2 December 2026 deadline apply to you?](https://vitna.costrinity.xyz/ai-act-december-2026)** | Article 50(2) machine-readable marking for generative systems placed on the EU market before 2 August 2026, plus the two prohibited practices added by the Digital Omnibus. Works out which of the two dates you are actually on. |
+| **[Article 50 transparency self-check](https://vitna.costrinity.xyz/article-50)** | Which Article 50 disclosure duties reach you as provider or deployer. |
+
+Both are scoping tools, not legal advice, and neither issues a score or a
+pass/fail. They cite the article and the Official Journal text behind every
+date they state.
 
 ## Verify VITNA evidence yourself
 
