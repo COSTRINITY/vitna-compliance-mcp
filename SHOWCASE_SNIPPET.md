@@ -25,4 +25,4 @@ MCP client config:
 
 Replace `VITNA_OWNER_ID` and `VITNA_API_KEY` with the values from your VITNA dashboard.
 
-Tools (22): consent_check, breach_classify, ai_act_classify, dpia_threshold_check, us_sectoral_check, india_sectoral_check, india_cross_border_status, japan_cross_border_status, us_state_breach_deadline, aadhaar_mask, pan_classify, gstin_validate, cpf_validate, sin_validate, iban_validate, pii_test, privacy_notice_get, sub_processors_register, global_compliance_map, india_regulators_directory
+Tools (23): vitna_claim, consent_check, breach_classify, ai_act_classify, dpia_threshold_check, us_sectoral_check, india_sectoral_check, india_cross_border_status, japan_cross_border_status, us_state_breach_deadline, aadhaar_mask, pan_classify, gstin_validate, cpf_validate, sin_validate, iban_validate, pii_test, privacy_notice_get, sub_processors_register, global_compliance_map, india_regulators_directory

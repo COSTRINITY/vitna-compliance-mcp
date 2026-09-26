@@ -44,8 +44,14 @@ real email to lift the limits and unlock signed, auditable records.
 ## Honesty
 
 VITNA is a cooperative guardrail, not a sandbox. `vitna_preflight` is heuristic
-pattern matching, so novel or obfuscated payloads can pass. It cannot block on its
-own; enforcement is yours.
+pattern matching, so novel or obfuscated payloads can pass. The tools cannot block
+on their own; enforcement is yours.
+
+The exception is guard mode (0.5.0+): `npx @costrinity/vitna-compliance-mcp guard
+-- <mcp server command>` sits in front of an MCP server and forwards a tool call
+only when VITNA returns `allowed`. It fails closed. With a policy file it can hold
+a call for a person (who is never the agent) and plant bait. It covers only the
+servers wrapped by it.
 
 Built by COSTRINITY (Indigenous-owned software studio in Regina, Saskatchewan,
 Treaty 4 territory, Canada).

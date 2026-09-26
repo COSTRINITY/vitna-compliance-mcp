@@ -47,6 +47,13 @@ console.log('VITNA evidence verification (offline, Ed25519)');
 console.log('  expected key_id    :', KEY_ID);
 console.log('  package key_id      :', inPkgKeyId, inPkgKeyId === KEY_ID ? '(match)' : '(MISMATCH)');
 console.log('  package signature   :', pkgOk ? 'valid' : 'INVALID');
+// Coverage first: how much of the agent's tool surface the guard covered, as
+// declared by the operator. Shown before any decision, because a verified
+// record of a partial surface is still a partial record.
+if (pkg.coverage) {
+  console.log('  guard coverage      :', String(pkg.coverage.coverage).toUpperCase());
+  console.log('    ' + pkg.coverage.statement);
+}
 
 // Per-record verification. Present on current bundles (record_hashes committed
 // inside the signed package). Absent on legacy bundles, which still verify at
@@ -71,8 +78,29 @@ if (hashes && records) {
     const label = records[i]?.action ?? records[i]?.check ?? records[i]?.id ?? ('#' + i);
     console.log('    [' + (pass ? 'PASS' : 'FAIL') + '] record ' + i + ': ' + label);
   }
+  const canons = [...new Set(records.map((r) => r?.canon_version ?? '(none)'))];
+  console.log('  decision canon      :', canons.join(', '));
 } else {
   console.log('  per-record checks   : not available (legacy bundle without record_hashes; package-level verification only)');
+}
+
+// Hold lifecycles (canon hold-v1): each hold's whole life, proposed to outcome,
+// in one record committed by hash inside the signed bundle. A hold approved
+// after the fact cannot be rewritten as approved before: the timestamps are in
+// the hashed record.
+if (Array.isArray(pkg.holds)) {
+  const hh = Array.isArray(pkg.hold_record_hashes) ? pkg.hold_record_hashes : [];
+  console.log('  hold canon          :', pkg.hold_canon_version ?? '(unspecified)');
+  console.log('  hold lifecycles     :', pkg.holds.length, 'record(s)');
+  if (hh.length !== pkg.holds.length) {
+    recordsOk = false;
+    console.log('    FAIL: hold_record_hashes length ' + hh.length + ' does not match holds ' + pkg.holds.length);
+  }
+  pkg.holds.forEach((h, i) => {
+    const pass = sha256hex(canonicalize(h)) === hh[i];
+    if (!pass) recordsOk = false;
+    console.log('    [' + (pass ? 'PASS' : 'FAIL') + '] hold ' + i + ' (' + (h?.canon_version ?? '?') + '): ' + (h?.action ?? '?') + ' -> ' + (h?.decision ?? '?') + (h?.drill ? ' [drill]' : '') + (h?.decided_by ? ' by ' + h.decided_by : ''));
+  });
 }
 
 // Completeness. A signature proves authenticity and integrity; it says
@@ -119,5 +147,5 @@ if (pkgOk && recordsOk) {
 }
 console.log('INVALID: ' + (!pkgOk
   ? 'package signature failed (altered, not signed by VITNA, or key mismatch).'
-  : 'a decision record does not match its committed hash (record tampered).'));
+  : 'a decision or hold record does not match its committed hash (record tampered).'));
 process.exit(1);

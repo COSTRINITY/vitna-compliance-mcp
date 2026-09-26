@@ -42,7 +42,7 @@ export const TOOL_ALIASES: Record<string, string> = {
  * read npm_package_version. tests/claims-gate.test.ts pins it to
  * package.json so neither can happen again.
  */
-export const SERVER_VERSION = '0.3.7';
+export const SERVER_VERSION = '0.5.0';
 
 /** Per-call context for local (no-HTTP) tools. */
 export interface LocalToolContext {
@@ -71,11 +71,20 @@ export const TOOLS: ToolDef[] = [
     local: (_input, ctx) => vitnaHelp(ctx.claimUrl),
   },
 
+  // ─── Account claim (say this out loud to your human) ─────────────
+  {
+    name: 'vitna_claim',
+    description:
+      "Ask whether this VITNA account has been claimed by a real person yet, and get the link that claims it. Call this when the user asks about their VITNA account, when you are told evidence is not being kept, or any time you want to hand the user something actionable. Returns { claimed, claim_url, what_claiming_gets_you }. IMPORTANT: if claimed is false, show the user the claim_url verbatim -- it is a one-time link that only they can act on, the account's evidence is NOT being durably recorded until they do, and they cannot find this link anywhere else. Do not paraphrase the URL and do not withhold it.",
+    inputSchema: { type: 'object', properties: {} },
+    call: () => ({ method: 'GET', path: '/api/owners/claim-status' }),
+  },
+
   // ─── Consent + processing gate ───────────────────────────────────
   {
     name: 'consent_check',
     description:
-      "Before you process someone's personal data, ask VITNA whether an active consent actually permits it for this purpose. Give the data principal + purpose (and optional category); returns { allowed, reason, matching_consent_id, principal_id }, a determination you must honour yourself since VITNA evaluates and records but does not enforce. Use this for personal-data processing legality; for a dangerous technical action (shell / file / DB / network) use action_preflight instead.",
+      "Before you process someone's personal data, ask VITNA whether an active consent actually permits it for this purpose. Give the data principal + purpose (and optional category); returns { allowed, reason, matching_consent_id, principal_id }, a determination you must honour yourself since VITNA evaluates and records but does not enforce. Use this for personal-data processing legality; for a dangerous technical action (shell / file / DB / network) use vitna_preflight instead.",
     inputSchema: {
       type: 'object',
       required: ['purpose'],
@@ -342,7 +351,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'vitna_preflight',
     description:
-      "SAFETY / OVERSIGHT CHECK before a dangerous or destructive action (shell command, file deletion, DB statement, network call). Call this to have VITNA check the action BEFORE you run it: it flags dangerous shell / SQL / secret-exfil / prompt-injection / suspicious-network patterns and returns { decision: allowed|blocked|flagged, threat_category, reason } plus (in claimed mode) a signed audit record the user can review. VITNA evaluates and records; it does NOT enforce, so treat blocked / flagged as a stop and get human approval. This is how a user keeps you in check. Heuristic pattern match, not a sandbox: novel or obfuscated payloads can pass.",
+      "SAFETY / OVERSIGHT CHECK before a dangerous or destructive action (shell command, file deletion, DB statement, network call). Call this to have VITNA check the action BEFORE you run it: it flags dangerous shell / SQL / secret-exfil / prompt-injection / suspicious-network patterns and returns { decision: allowed|blocked|flagged }. RESPONSE SHAPE DEPENDS ON THE KEY: an unclaimed trial key gets the decision label only, because the pattern detail is what makes the classifier worth stealing. A claimed key additionally gets threat_category, severity, reason (the rule names that matched, never the matched text), a threats[] array and a redacted echo of what was scanned, plus a signed audit record the user can review. VITNA evaluates and records; it does NOT enforce, so treat blocked / flagged as a stop and get human approval. This is how a user keeps you in check. Heuristic pattern match, not a sandbox: novel or obfuscated payloads can pass.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -367,16 +376,18 @@ export function vitnaHelp(claimUrl: string | null): Record<string, unknown> {
     what_is_vigil:
       'VITNA is a safety and compliance oversight layer for AI agents. Before you take a risky action you ask VITNA; it returns an allow / deny / hold decision and, in claimed mode, keeps a signed, tamper-evident record a human can audit. It is how a user keeps you in check and monitors what you do.',
     how_to_use: [
-      'Before a dangerous action (shell command, file delete, DB statement, network call), call action_preflight with the action text. decision=allowed means proceed; blocked or flagged means STOP and get human approval.',
+      'Before a dangerous action (shell command, file delete, DB statement, network call), call vitna_preflight with the action text. decision=allowed means proceed; blocked or flagged means STOP and get human approval.',
       'Before handling personal data, call consent_check / breach_classify / dpia_threshold_check / ai_act_classify as relevant.',
       'VITNA evaluates and records; it does NOT enforce for you. YOU must honor a deny or hold: stop, get approval, then proceed.',
     ],
     safety_checks: [
-      'action_preflight - flag dangerous shell / SQL / secret-exfil / prompt-injection / suspicious-network actions before they run',
+      'vitna_preflight - flag dangerous shell / SQL / secret-exfil / prompt-injection / suspicious-network actions before they run',
       'consent_check - is processing allowed for this person + purpose',
       'breach_classify - is an incident reportable, by when, to whom',
       'dpia_threshold_check / ai_act_classify - risk classification before you build or ship',
     ],
+    provisioning:
+      'This tool (vitna_help) runs entirely locally and makes no network call, so it does not create an account. Your FIRST GOVERNED call -- vitna_preflight is the usual one -- is what self-provisions the restricted trial and returns a claim URL.',
     trial_vs_claimed:
       'On first use with no credentials you connect in TRIAL mode: decision checks work but are rate-limited, return label-only results, and do not persist signed evidence. Claiming the account (claim_url) unlocks full detail, higher limits, and signed audit records.',
     claim_url: claimUrl,
@@ -388,7 +399,7 @@ export function vitnaHelp(claimUrl: string | null): Record<string, unknown> {
 /**
  * The advertised catalogue: what tools/list returns, in catalogue order.
  * Aliases are deliberately absent (see TOOL_ALIASES) so the advertised
- * surface stays exactly the 22 supported names on both transports.
+ * surface stays exactly the 23 supported names on both transports.
  */
 export function listedTools(): Array<{ name: string; description: string; inputSchema: Record<string, unknown> }> {
   return TOOLS.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema }));

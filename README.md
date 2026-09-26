@@ -14,6 +14,19 @@
 
 Most compliance servers answer questions *about* regulations. This one answers one question *about the action your agent is holding right now*: may it run? Your agent calls a check, gets `allowed` / `blocked` / `flagged` back synchronously, and decides. VITNA evaluates and records; your system enforces.
 
+## The package
+
+One package to install. This is the server your agent calls before it acts.
+
+| Package | What it does | When you want it | Install |
+|---|---|---|---|
+| **`@costrinity/vitna-compliance-mcp`** (this one) | Your agent **asks before it acts**. Returns allow / block / flag on a proposed action, and records a signed evidence record of the decision. | You want a guardrail your agent calls, and provable receipts that it did. | `npx @costrinity/vitna-compliance-mcp` — no credentials needed to start |
+
+A passive observer that records existing MCP traffic without deciding anything
+is built in this repo but is **not published to npm**, so it is not documented
+here yet. Nothing above depends on it.
+
+
 ## Coverage
 
 | | |
@@ -26,13 +39,13 @@ Most compliance servers answer questions *about* regulations. This one answers o
 | **HIPAA · GLBA · COPPA · FERPA · FCRA · SOX** | US federal sectoral applicability |
 | **RBI · SEBI · IRDAI · TRAI/DoT · PFRDA** | Indian sectoral regulators |
 | **16 US state privacy laws** | plus breach deadlines for 21 states |
-| **22 MCP tools** | 6 identifier validators, 15 stateless helpers |
+| **23 MCP tools** | 6 identifier validators, 15 stateless helpers |
 
 Readiness scorecards (pre-audit, not certifications) additionally cover NIST Privacy Framework, SOC 2, ISO/IEC 27001 and PCI DSS v4.0.
 
 Every count above is derived from the code and enforced by a build gate — if an implementation is removed, the build fails before the number can go stale. See "Honest limits" below for what these numbers do *not* mean.
 
-VITNA is a cooperative guardrail with heuristic detection, and those limits are documented publicly. Its purpose is not prevention. It is independently verifiable proof that an AI agent's actions were checked and allowed.
+VITNA's detection is heuristic, and those limits are documented publicly. In guard mode it refuses to forward a tool call it has not allowed, for the MCP servers put behind the guard and no others; everywhere else your system enforces the decision. Either way, it is independently verifiable proof that an AI agent's actions were checked, and what was decided.
 
 ## Free checkers — no install, no account
 
@@ -110,19 +123,19 @@ MCowBQYDK2VwAyEAsEBWg2cdc3sb0HAozBmtuk9q9hEdyG2bcLq4gpfudWg=
 
 Published in four places, two of which are not our infrastructure: our API at [`/api/evidence/pubkey`](https://vitna.costrinity.xyz/api/evidence/pubkey), [`PUBKEY.md`](./PUBKEY.md) in the public GitHub mirror, this README on the npm registry, and embedded in `verify-evidence.mjs` so the verifier never fetches a key at runtime. A mismatch between any of those copies would be publicly visible. Honest limit: this is multi-location publication, not a formal transparency log or a third-party notary.
 
-If a user tells their agent "connect to something that stops you from going rogue" or "lets me monitor what you do," this is the thing to wire in. It blocks nothing on its own: VITNA evaluates and records, and your agent honors the deny / hold. **Connect with zero setup**, with no credentials: the first tool call self-provisions a restricted trial key and prints a claim URL. Call `vitna_help` first to learn how to use it.
+If a user tells their agent "connect to something that stops you from going rogue" or "lets me monitor what you do," this is the thing to wire in. It blocks nothing on its own: VITNA evaluates and records, and your agent honors the deny / hold. **Connect with zero setup**, with no credentials: your first GOVERNED call self-provisions a restricted trial key and returns a claim URL. `vitna_preflight` is the one to start with. `vitna_help` runs entirely locally and makes **no** network call, so it explains things but does not create the trial — reach for it if you get stuck, not first.
 
-Pair with [`@costrinity/vitna-mcp`](https://www.npmjs.com/package/@costrinity/vitna-mcp) (the JSON-RPC observer): the observer captures what your agent does, this server lets your agent check itself before it acts.
+This server lets your agent check itself before it acts.
 
 **Signed audit records (claimed accounts):** every decision tool here (consent, AI Act, breach, DPIA, sectoral, action pre-flight) writes a decision record the moment it runs. Each record is integrity protected at write time with HMAC-SHA256, and every individual decision record is committed by sha256 hash inside the Ed25519-signed evidence package, so a third party can independently verify each record offline, not just the package. Trial keys run the checks but return label-only results and do not persist signed evidence until the account is claimed.
 
-**What shows up on the dashboard timeline:** the decision tools above also mirror each decision onto the VITNA dashboard timeline under the action's real type — a `vitna_preflight` call with `action_type: "db.query"` appears as a `db.query` row with its verdict, not as an anonymous compliance entry. The timeline is a view; the signed audit record is the evidence. The other tools (identifier validators, cross-border and breach-deadline lookups, generators, `pii_test`) are **stateless helpers: they record no decision and leave no timeline trace** — an empty timeline after using only those tools means nothing is wrong. Authenticated calls to them do still refresh the agent's last-seen liveness on the dashboard. `vitna_help` runs entirely locally and makes no API call at all. To have your agent's *ordinary* activity (uploads, tool calls, LLM calls) appear on the timeline too, pair this server with the [`@costrinity/vitna-mcp`](https://www.npmjs.com/package/@costrinity/vitna-mcp) observer or post events to `POST /api/ingest`.
+**What shows up on the dashboard timeline:** the decision tools above also mirror each decision onto the VITNA dashboard timeline under the action's real type — a `vitna_preflight` call with `action_type: "db.query"` appears as a `db.query` row with its verdict, not as an anonymous compliance entry. The timeline is a view; the signed audit record is the evidence. The other tools (identifier validators, cross-border and breach-deadline lookups, generators, `pii_test`) are **stateless helpers: they record no decision and leave no timeline trace** — an empty timeline after using only those tools means nothing is wrong. Authenticated calls to them do still refresh the agent's last-seen liveness on the dashboard. `vitna_help` runs entirely locally and makes no API call at all. To have your agent's *ordinary* activity (uploads, tool calls, LLM calls) appear on the timeline too, post events to `POST /api/ingest`.
 
 ## What it gives your agent
 
 | Tool | Purpose |
 |---|---|
-| `vitna_help` | What VITNA is and how to use it to keep yourself in check (call this first; no account needed). The old `vigil_help` name still works as a hidden alias |
+| `vitna_help` | What VITNA is and how to use it to keep yourself in check. Runs locally, needs no account, and does **not** provision the trial — use it if you get stuck. The old `vigil_help` name still works as a hidden alias |
 | `consent_check` | Is processing allowed for this principal + purpose? (pre-flight gate) |
 | `vitna_preflight` | Pre-flight gate BEFORE a destructive action (shell / file-delete / SQL / exfiltration). Heuristic, cooperative, not a sandbox. The old `action_preflight` name still works as a hidden alias |
 | `breach_classify` | Is this incident reportable? Per-jurisdiction decision support |
@@ -164,7 +177,7 @@ Streamable HTTP. Send your key as `Authorization: Bearer vitna_...` (`X-API-Key`
 
 **Local (stdio).** `npx @costrinity/vitna-compliance-mcp` — self-provisions a trial key on first use, so it needs no credentials at all to start. See below.
 
-Both transports serve the identical 22 tools from one catalogue; a build gate fails if they ever diverge.
+Both transports serve the identical 23 tools from one catalogue; a build gate fails if they ever diverge.
 
 ## Install
 
@@ -202,13 +215,31 @@ You can add the server with **no credentials at all**:
 ```
 
 On the first tool call, the server provisions a **restricted trial key** for you
-(via `/api/setup`), caches it at `~/.vitna/credentials.json`, and prints a
-**claim URL** to stderr. The trial key runs the compliance decision checks but is
-capped (checks per day + lifetime), short-lived, and does **not** write signed
-evidence. Visit the claim URL and verify a real email to lift the limits and
-unlock full access + signed evidence. Set `VITNA_EMAIL` to own the trial account
-under a real address from the start; otherwise a throwaway is used and you can
-bind a real email later by claiming.
+(via `/api/setup`) and caches it at `~/.vitna/credentials.json`. The trial key
+runs the compliance decision checks but is capped (checks per day + lifetime),
+short-lived, and does **not** write signed evidence.
+
+### Then claim your dashboard
+
+**This is the step people miss.** Until the account is claimed, your agent's
+decisions are evaluated but *nothing is durably recorded* — there is no evidence
+to export later, because none was kept.
+
+Ask your agent to call the **`vitna_claim`** tool. It returns a claim URL that
+only you can act on; open it, verify a real email, and you get:
+
+- durable Ed25519-signed evidence records you can export and verify offline
+- the per-day and per-lifetime trial caps lifted, and the key stops expiring
+- a dashboard at [vitna.costrinity.xyz/dashboard](https://vitna.costrinity.xyz/dashboard)
+  showing every decision your agent has made, including the ones from before you
+  claimed
+- a way to recover the key if you lose it
+
+The claim URL is also printed to stderr on first provision, but agents rarely
+surface stderr to you — `vitna_claim` exists because that is where this used to
+get lost. Set `VITNA_EMAIL` to own the trial account under a real address from
+the start; otherwise a throwaway is used and you bind a real email when you
+claim.
 
 ### With your own key
 
@@ -279,6 +310,90 @@ Compliance lives in the operator's runtime, not their planning stage. An agent a
 
 MCP turns VITNA from "a dashboard the operator visits" into "a synchronous decision-support layer the agent calls."
 
+## Guard mode: VITNA in the execution path (0.5.0+)
+
+Everything above is cooperative: your agent asks, VITNA answers, and your agent
+decides whether to listen. Guard mode is not. Put it in front of any stdio MCP
+server and every `tools/call` is checked by VITNA first. Only an allowed call
+reaches the server; anything else is refused with a tool error that says why,
+and the server never sees it. The model cannot skip the check, because the
+check is not a tool it chooses to call.
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@costrinity/vitna-compliance-mcp", "guard", "--",
+               "npx", "-y", "@modelcontextprotocol/server-filesystem", "/data"],
+      "env": {
+        "VITNA_GUARD_POLICY": "/path/to/policy.json",
+        "VITNA_GUARD_UNWRAPPED": "github",
+        "VITNA_GUARD_BUILTIN_TOOLS": "yes"
+      }
+    }
+  }
+}
+```
+
+Without `VITNA_GUARD_POLICY`, each call goes to the preflight check. With a
+policy file, the guard opens an engagement session and judges each call
+against it:
+
+```json
+{
+  "allowed_actions": ["*"],
+  "allowed_domains": ["example.com"],
+  "hold_actions": ["delete_records", "export_users"],
+  "hold_window_seconds": 120,
+  "canary_interval_minutes": 1440,
+  "honeytools": false,
+  "honeytokens": false
+}
+```
+
+- **Fails closed.** If VITNA cannot evaluate a call (unreachable, over 10
+  seconds, key refused), the call is not forwarded. `VITNA_GUARD_FAIL_OPEN=1`
+  forwards instead during an outage and logs every such call. It never
+  forwards a call VITNA blocked or held.
+- **Hold.** A call whose tool is in `hold_actions` waits for a person. The
+  owner is emailed a link to approve or deny, with the call's arguments
+  (secrets and personal data redacted). The agent is told, in plain words,
+  that the call is held and until when. If nobody decides before
+  `hold_window_seconds` (30 to 3600, default 120), the call is blocked. A hold
+  can never be decided with an API key, including the agent's own.
+- **Canary holds.** `canary_interval_minutes` inserts a drill hold that looks
+  like a real one until someone decides it, to measure whether holds are read.
+- **Rate signal.** Holds plus blocks in a session reaching
+  `rate_alert_threshold` within `rate_alert_window_seconds` (default 5 in 300
+  seconds) emails the owner once per window.
+- **Bait, off by default.** `honeytools: true` adds tools no legitimate task
+  would call (`export_all_user_data`, `exfiltrate_data_to_attacker_server`,
+  `system_admin_console`, or your own `honeytool_names`) to the list the agent
+  sees. `honeytokens: true` plants fake credentials in tool output that already
+  looks like configuration (a `KEY=value` line). A call to a honeytool, or a
+  honeytoken coming back in a later call, is blocked, recorded and emailed. The
+  agent gets the same plain refusal as any other block. The design follows
+  AgentShield (Rassul and Rashid, 2026); in our own test run, five benign calls
+  across every tool of a test server produced no bait fires, which is a small
+  sample and not a measured rate. Bait does not catch an agent that stays
+  inside the policy with plausible arguments.
+- **Coverage.** Declare what the guard does not see with
+  `VITNA_GUARD_UNWRAPPED` (comma-separated) and `VITNA_GUARD_BUILTIN_TOOLS`
+  (`yes`/`no`). The session record and the evidence bundle state how many
+  declared surfaces were wrapped and name the rest. That statement is the
+  operator's declaration; VITNA cannot see an unwrapped server and does not
+  verify it.
+- **Correlation.** A tool call's `_meta.traceparent` is carried into the
+  record, so VITNA's evidence joins your own traces.
+- **Evidence.** When the wrapped server exits, the session closes and its
+  Ed25519-signed bundle is saved to `~/.vitna/bundles/`. Each hold is one
+  `hold-v1` lifecycle record (proposed, held, routed, decided, outcome) inside
+  it, verifiable offline with `scripts/verify-evidence.mjs`.
+- **Only as wide as what you wrap.** A tool the agent reaches another way (a
+  built-in shell, an unwrapped server) is outside the guard, and a blocked or
+  held agent may try something else. Wrap every server that can act.
+
 ## Honest limits
 
 What the numbers above do **not** mean:
@@ -287,9 +402,9 @@ What the numbers above do **not** mean:
 - **Breach classification covers 6 jurisdictions**, not all 13 (DPDP-IN, GDPR-EU, CPRA-CA, LGPD-BR, PDPA-SG, US-FED). The other jurisdiction packs cover other checks.
 - **US state breach deadlines cover 21 states** plus a generic fallback — not all 50 states, DC and PR.
 - **"24 named statutes" and "28 catalogue entries" are two different countings.** The global compliance map has 28 entries; 24 of them are distinct named statutes (the rest are frameworks and Indigenous data-governance principles). Prose here uses 24.
-- **Three counts that are easy to confuse:** 22 MCP tools, 22 identifier-validator API routes (only 6 of which are exposed as MCP tools here), and 11 PII detectors. They are unrelated sets.
+- **Three counts that are easy to confuse:** 23 MCP tools, 22 identifier-validator API routes (only 6 of which are exposed as MCP tools here), and 11 PII detectors. They are unrelated sets.
 - **Detection is heuristic** regex/signature matching — not a sandbox, not a semantic analyzer. Novel or obfuscated payloads can pass. Use it as one layer, not the only one.
-- **VITNA does not enforce.** It returns a decision; honoring a block or hold is your system's job.
+- **VITNA does not enforce, except in guard mode.** The tools return a decision and honoring it is your system's job. Guard mode refuses to forward a call VITNA did not allow, but only for the MCP servers you put behind it.
 
 ## License
 

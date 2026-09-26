@@ -18,7 +18,9 @@
  *   yearly DPIA. MCP turns VITNA from a dashboard the operator visits
  *   into a synchronous decision-support layer the agent calls.
  *
- *   Pair with `@costrinity/vitna-mcp` (the proxy/observer) for full
+ *   GUARD MODE (src/guard.ts, `... guard -- <server>`) puts VITNA in the
+ *   execution path of a wrapped MCP server. Otherwise, pair with
+ *   `@costrinity/vigil-mcp` (the proxy/observer, not yet on npm) for
  *   coverage: the observer captures what the agent does, this server
  *   gives the agent compliance superpowers before it acts.
  *
@@ -57,6 +59,7 @@ import { randomBytes } from 'node:crypto';
 // and credential handling; it deliberately declares no tools of its own, so
 // the two transports cannot drift apart.
 import { listedTools, resolveTool, SERVER_VERSION } from './tools.js';
+import { runGuard, honeytoolsFor, makeHoneytokens, type GuardDecision, type GuardDeps } from './guard.js';
 
 // Env vars: VITNA_* is canonical. The old VIGIL_* names are accepted forever
 // as aliases, so existing user configs never break.
@@ -211,12 +214,54 @@ function isRefusal(result: unknown): { code: string; body: unknown } | null {
 }
 
 
+/* ── Unclaimed-account reminder ──────────────────────────────────────
+ *
+ * The claim URL used to be printed once, to stderr, on first provision. Nobody
+ * reads an agent's stderr, so the person who could actually claim the account
+ * never learned it existed and the evidence quietly went unkept.
+ *
+ * So the reminder rides on governed tool results instead, as its OWN text
+ * block. It is never merged into the JSON: the structured verdict an agent
+ * branches on must be byte-identical whether or not the account is claimed,
+ * or we would be changing a safety decision to advertise.
+ *
+ * CADENCE: the first 3 governed calls, then every 10th. The first few are
+ * where an agent is still narrating setup to its human, so that is when it
+ * gets relayed; the every-10th tail catches long-running sessions without the
+ * line ever becoming most of the output. Once the account is claimed it stops
+ * for good -- claimConfirmed latches and the server stops minting a URL.
+ */
+let governedCalls = 0;
+let claimConfirmed = false;
+
+/** Cheap check, run only when we are about to remind, so a claim that happened
+ *  in another window silences this one within at most 10 calls. Failure to
+ *  reach the API leaves the reminder on, which is the harmless direction. */
+async function stillUnclaimed(): Promise<boolean> {
+  if (claimConfirmed) return false;
+  try {
+    const r = await callVitna('GET', '/api/owners/claim-status');
+    if (r && typeof r === 'object' && (r as Record<string, unknown>).claimed === true) {
+      claimConfirmed = true;
+      VITNA_CLAIM_URL = '';
+      return false;
+    }
+  } catch { /* keep reminding */ }
+  return true;
+}
+
+function reminderLine(): string {
+  return VITNA_CLAIM_URL
+    ? `Unclaimed trial - claim your dashboard at ${VITNA_CLAIM_URL} to keep this evidence. Nothing is being durably recorded until someone does.`
+    : 'Unclaimed trial - this evidence is not being durably recorded. Ask VITNA for the claim link with the vitna_claim tool.';
+}
+
 /** One-time notice, in language the agent can relay to the user, emitted on the
  *  first tool response after self-provisioning. */
 function connectionNotice(): string {
   return [
     'CONNECTED TO VITNA, a safety and compliance oversight layer, in TRIAL mode.',
-    'You can now check risky actions BEFORE you run them: call action_preflight for shell / file / DB / network actions, or the compliance checks for data handling. Each returns an allow / deny / hold decision. Treat deny or hold as a stop and get human approval before proceeding.',
+    'You can now check risky actions BEFORE you run them: call vitna_preflight for shell / file / DB / network actions, or the compliance checks for data handling. Each returns an allow / deny / hold decision. Treat deny or hold as a stop and get human approval before proceeding.',
     'This trial key is rate-limited and does NOT keep signed audit evidence.',
     VITNA_CLAIM_URL
       ? `To keep your audit records and raise the limits, tell the user to claim this account: ${VITNA_CLAIM_URL}`
@@ -311,11 +356,27 @@ async function handle(req: JsonRpcReq): Promise<void> {
         const content: Array<{ type: 'text'; text: string }> = [];
         // On the tool call that triggered self-provisioning, lead with a
         // plain-language connection notice the agent can relay to the user.
+        const noticeShownThisCall = justProvisioned;
         if (justProvisioned) {
           justProvisioned = false;
           content.push({ type: 'text', text: connectionNotice() });
         }
         content.push({ type: 'text', text: JSON.stringify(result, null, 2) });
+
+        // Appended AFTER the verdict, as a separate block, and only for
+        // governed calls -- vitna_claim and vitna_help already talk about
+        // claiming, so reminding on those would be noise. justProvisioned
+        // already carried the full notice on this same response, so skip it
+        // there rather than saying it twice.
+        if (!tool.local && !noticeShownThisCall && !claimConfirmed) {
+          governedCalls++;
+          if (governedCalls <= 3 || governedCalls % 10 === 0) {
+            if (await stillUnclaimed()) {
+              content.push({ type: 'text', text: reminderLine() });
+            }
+          }
+        }
+
         ok(id, failedCheck ? { content, isError: true } : { content });
         return;
       }
@@ -333,8 +394,170 @@ async function handle(req: JsonRpcReq): Promise<void> {
   }
 }
 
+// ─── Guard mode (VITNA in the execution path; see src/guard.ts) ────
+
+const GUARD_TIMEOUT_MS = 10_000;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** A VITNA call that resolves within 10s or reports why not. Never rejects:
+ *  a hung check must fail closed, not hang the agent's tool call forever. */
+async function vitnaWithin(method: string, path: string, body?: unknown): Promise<{ ok: true; value: Record<string, unknown> } | { ok: false; reason: string }> {
+  const timeout = new Promise<{ ok: false; reason: string }>((r) => setTimeout(() => r({ ok: false, reason: 'timed out after 10s' }), GUARD_TIMEOUT_MS));
+  const call = (async () => {
+    try {
+      const r = await callVitna(method, path, body);
+      const refused = isRefusal(r);
+      if (refused) return { ok: false as const, reason: refused.code };
+      return { ok: true as const, value: (r ?? {}) as Record<string, unknown> };
+    } catch (e) {
+      return { ok: false as const, reason: e instanceof Error ? e.message : String(e) };
+    }
+  })();
+  return Promise.race([call, timeout]);
+}
+
+/** Preflight mode (no policy), exactly as shipped in 0.4.0. */
+async function guardPreflight(action: string, payload: Record<string, unknown>): Promise<GuardDecision> {
+  const r = await vitnaWithin('POST', '/api/preflight/action-check', { action, payload, action_type: 'mcp_tool' });
+  if (!r.ok) return { decision: 'error', reason: r.reason };
+  const o = r.value;
+  if (o.decision === 'allowed' || o.decision === 'blocked' || o.decision === 'flagged') {
+    return { decision: o.decision, reason: typeof o.reason === 'string' ? o.reason : undefined };
+  }
+  return { decision: 'error', reason: 'no decision in the response' };
+}
+
+/** A label for the wrapped server: its npm package if it has one, else the command. */
+function wrappedLabel(cmd: string[]): string {
+  const pkg = cmd.slice(1).find((a) => /^@?[\w.-]+\/[\w.-]+/.test(a) || /^[\w.-]*mcp[\w.-]*$/i.test(a));
+  return (env('GUARD_NAME') || pkg || cmd[0] || 'wrapped-server').replace(/[^\w@./:+-]/g, '_').slice(0, 80);
+}
+
+/**
+ * Engagement mode (VITNA_GUARD_POLICY=<file.json>): one engagement session for
+ * the life of this process, holds that wait for a person, bait if the policy
+ * asks for it, and a coverage declaration on the session record. Closed when
+ * the wrapped server exits; the signed bundle is saved to ~/.vitna/bundles/.
+ */
+function engagementGuard(policyFile: string, wrapped: string[]) {
+  let raw: Record<string, unknown>;
+  try {
+    raw = JSON.parse(readFileSync(policyFile, 'utf8'));
+  } catch (e) {
+    console.error(`[vitna-guard] cannot read VITNA_GUARD_POLICY ${policyFile}: ${e instanceof Error ? e.message : e}`);
+    process.exit(2);
+  }
+  const policy = ((raw.scope_policy ?? raw) as Record<string, unknown>);
+  const list = (v: string | undefined) => (v ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+  const builtin = env('GUARD_BUILTIN_TOOLS');
+  const coverage = {
+    wrapped: [wrappedLabel(wrapped)],
+    unwrapped: list(env('GUARD_UNWRAPPED')),
+    builtin_tools: builtin === 'yes' || builtin === 'no' ? builtin : 'undeclared',
+  };
+  const names = Array.isArray(policy.honeytool_names) && policy.honeytool_names.length
+    ? (policy.honeytool_names as string[]) : ['export_all_user_data', 'exfiltrate_data_to_attacker_server', 'system_admin_console'];
+  const honeytools = policy.honeytools === true ? honeytoolsFor(names) : [];
+  const honeytokens = policy.honeytokens === true ? makeHoneytokens() : null;
+
+  const session: Promise<string | null> = (async () => {
+    const r = await vitnaWithin('POST', '/api/engagement/open', { scope_policy: policy, coverage, metadata: { via: 'vitna-guard', version: SERVER_VERSION } });
+    const sid = r.ok && typeof r.value.session_id === 'string' ? r.value.session_id : null;
+    if (sid) console.error(`[vitna-guard] engagement session ${sid} opened (coverage: ${(r as { value: Record<string, unknown> }).value.coverage ? JSON.stringify(((r as { value: Record<string, unknown> }).value.coverage as Record<string, unknown>).coverage) : 'not recorded'})`);
+    else console.error(`[vitna-guard] could not open an engagement session (${r.ok ? 'no session_id' : r.reason}); every tool call will be refused`);
+    return sid;
+  })();
+
+  const firstUrl = (v: unknown): string | undefined => {
+    if (typeof v === 'string') return /^https?:\/\/\S+$/i.test(v) ? v : undefined;
+    if (Array.isArray(v)) { for (const x of v) { const u = firstUrl(x); if (u) return u; } return undefined; }
+    if (v && typeof v === 'object') { for (const x of Object.values(v)) { const u = firstUrl(x); if (u) return u; } }
+    return undefined;
+  };
+
+  const deps: GuardDeps = {
+    failOpen: env('GUARD_FAIL_OPEN') === '1',
+    log: (m) => console.error(`[vitna-guard] ${m}`),
+    honeytools,
+    honeytokens,
+    async preflight(_action, payload, call) {
+      const sid = await session;
+      if (!sid) return { decision: 'error', reason: 'no engagement session' };
+      const type = (call.name || 'unnamed_tool').replace(/\s+/g, '_');
+      const target = firstUrl(payload);
+      const r = await vitnaWithin('POST', '/api/engagement/action', {
+        session_id: sid, type, payload,
+        ...(target ? { target } : {}),
+        ...(call.meta ? { _meta: call.meta } : {}),
+        ...(call.bait ? { guard_event: call.bait } : {}),
+      });
+      if (!r.ok) return { decision: 'error', reason: r.reason };
+      const o = r.value;
+      const reason = typeof o.reason === 'string' ? o.reason : undefined;
+      if (o.decision === 'allow') return { decision: 'allowed', reason };
+      if (o.decision === 'deny') return { decision: 'blocked', reason };
+      const h = o.hold as { hold_id?: string; deadline?: string } | undefined;
+      if (o.decision === 'hold' && h?.hold_id && h.deadline) return { decision: 'held', reason, hold: { hold_id: h.hold_id, deadline: h.deadline } };
+      return { decision: 'error', reason: 'no decision in the response' };
+    },
+    async waitForHold(hold, progress) {
+      const deadline = Date.parse(hold.deadline);
+      let lastNote = Date.now();
+      for (;;) {
+        await sleep(2000);
+        const r = await vitnaWithin('GET', `/api/engagement/hold?hold_id=${encodeURIComponent(hold.hold_id)}`);
+        const st = r.ok ? r.value.status : undefined;
+        if (st === 'approved' || st === 'denied' || st === 'expired') return st;
+        // Past the deadline VITNA records `expired` on read; if it still cannot
+        // be read 30s later, the outcome is unknown and the call is refused.
+        if (Date.now() > deadline + 30_000) return 'error';
+        if (Date.now() - lastNote >= 10_000) {
+          progress(`Still held for human review until ${hold.deadline}.`);
+          lastNote = Date.now();
+        }
+      }
+    },
+    async onExit() {
+      const sid = await session;
+      if (!sid) return;
+      const r = await vitnaWithin('POST', '/api/engagement/close', { session_id: sid });
+      if (!r.ok) { console.error(`[vitna-guard] could not close session ${sid} (${r.reason})`); return; }
+      try {
+        const dir = join(homedir(), '.vitna', 'bundles');
+        mkdirSync(dir, { recursive: true });
+        const file = join(dir, `${sid}.json`);
+        writeFileSync(file, JSON.stringify(r.value, null, 2));
+        console.error(`[vitna-guard] session ${sid} closed; signed bundle saved to ${file}`);
+      } catch (e) {
+        console.error(`[vitna-guard] session closed but the bundle could not be saved: ${e instanceof Error ? e.message : e}`);
+      }
+    },
+  };
+  return deps;
+}
+
+const guardSep = process.argv.indexOf('--');
+if (process.argv[2] === 'guard') {
+  const wrapped = guardSep > 0 ? process.argv.slice(guardSep + 1) : [];
+  if (!wrapped.length) {
+    console.error('usage: vitna-compliance-mcp guard -- <command that starts an MCP server> [args...]');
+    process.exit(2);
+  }
+  const policyFile = env('GUARD_POLICY');
+  runGuard(wrapped[0]!, wrapped.slice(1), policyFile
+    ? engagementGuard(policyFile, wrapped)
+    : {
+        preflight: guardPreflight,
+        failOpen: env('GUARD_FAIL_OPEN') === '1',
+        log: (m) => console.error(`[vitna-guard] ${m}`),
+      });
+} else {
+  startServer();
+}
+
 // ─── Main loop ─────────────────────────────────────────────────────
 
+function startServer(): void {
 if (!VITNA_OWNER_ID && !loadCachedCreds()) {
   console.error(
     '[vitna-compliance-mcp] No VITNA_OWNER_ID / VITNA_API_KEY set. ' +
@@ -353,3 +576,4 @@ rl.on('line', (line) => {
     // Malformed — ignore. MCP protocol assumes line-delimited valid JSON.
   }
 });
+}
