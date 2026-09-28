@@ -50,6 +50,25 @@ A VALID result proves the package was issued by VITNA and has not been altered
 since export, and that every record matches its committed hash. It does not
 prove the actions were performed or that the records are factually true.
 
+### Bundles from VITNA Desktop are not signed with this key
+
+VITNA Desktop signs evidence on the user's own machine, with an Ed25519 key it
+generated there. Its signed package says so: `issuer: "vitna-desktop-local"`,
+`signer_key_id` and `signer_public_key`. The verifier checks such a bundle
+against `--pubkey <base64 SPKI DER, or a file holding it>` when given, else
+against the key the bundle carries, and reports it as "signed by a local VITNA
+Desktop key, not by VITNA". When it used the carried key, compare the printed
+key_id with the one VITNA Desktop shows under Settings on the machine that
+produced the bundle: that comparison is what ties the bundle to that machine.
+Its verdicts read `VALID, all records in scope`, `VALID but PARTIAL` or
+`VALID, record count not attested`, and never say issued by VITNA.
+
+A key carried inside a bundle is used only for that issuer. Every other bundle
+is checked against the key above (or against `--pubkey`, reported as a key the
+reader supplied), so a self-signed bundle cannot pass as one VITNA issued.
+Anyone with access to that machine's app data could re-sign a desktop bundle,
+and VITNA does not countersign desktop bundles yet.
+
 ### Completeness is separate from authenticity
 
 A signature proves a package is authentic. It says nothing about whether the

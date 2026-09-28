@@ -79,6 +79,8 @@ Evidence packages are **verifiable compliance receipts for agent actions**: each
 
 A VALID result proves the package was issued by VITNA, has not been altered since export, and that every record matches its committed hash. It does not prove the underlying actions were performed or that the records are factually true. Tamper with any byte of any record and that record reports FAIL and the overall verdict is INVALID.
 
+**Bundles from VITNA Desktop are signed differently.** VITNA Desktop signs on your own machine, with a key it generated there, not with VITNA's key. The signed package says so (`issuer: "vitna-desktop-local"`, `signer_key_id`, `signer_public_key`), and the verifier reports such a bundle as "signed by a local VITNA Desktop key, not by VITNA". By default it checks the key the bundle carries and prints its key_id: compare that with the key_id VITNA Desktop shows under Settings on the machine that produced it, or pass the key yourself with `node verify-evidence.mjs --pubkey <base64 SPKI DER, or a file holding it> bundle.json`. Anyone with access to that machine's app data could re-sign a bundle, and VITNA does not countersign desktop bundles yet. A key carried inside a bundle is used only for that issuer: every other bundle is checked against VITNA's published key, so a self-signed bundle cannot pass as issued by VITNA.
+
 ### Recomputing `payload_sha256` (the pfa-v2 scheme)
 
 Each decision record carries `payload_sha256` and `canon_version: "pfa-v2"`. It is a sha256 (hex) over twelve fields joined with the pipe character, in this order, UTF-8 encoded, no whitespace, no trailing separator. Null or absent values become the empty string.
