@@ -2,8 +2,10 @@
 
 > **Renamed from VIGIL.** This package was formerly published as
 > `@costrinity/vigil-compliance-mcp` and this repo was formerly
-> `COSTRINITY/vigil-compliance-mcp`. **The old package name does not exist on
-> npm** — anything still pointing at it will fail to install. Directory
+> `COSTRINITY/vigil-compliance-mcp`. The old package is still on npm at
+> 0.2.4, deprecated with the message "Renamed: use
+> @costrinity/vitna-compliance-mcp". It gets no updates and has no guard
+> mode, so anything still pointing at it installs that old version. Directory
 > listings that show the VIGIL name are stale snapshots of this repo.
 >
 > Current package: **`@costrinity/vitna-compliance-mcp`**
@@ -267,8 +269,9 @@ claim.
 - `VITNA_API_KEY`: optional. Authenticates the tool calls. Self-provisioned if unset. New keys are formatted `vitna_...`; legacy `vigil_...` keys remain valid.
 - `VITNA_EMAIL`: optional. Email to own the self-provisioned trial account. A throwaway is used if unset (claim later to bind a real email).
 - `VITNA_BASE_URL`: defaults to `https://vitna.costrinity.xyz`. Point at your own VITNA instance if self-hosted.
+- `VITNA_AGENT_NAME`: optional. The agent name a self-provisioned trial account is created with. Defaults to `vitna-compliance-mcp`. Versions before 0.5.1 added your machine's hostname to that name; 0.5.1 and later do not.
 
-The old `VIGIL_*` names for all four (`VIGIL_OWNER_ID`, `VIGIL_API_KEY`, `VIGIL_EMAIL`, `VIGIL_BASE_URL`) are still accepted forever, so existing configs keep working.
+The old `VIGIL_*` names for all of these (`VIGIL_OWNER_ID`, `VIGIL_API_KEY`, `VIGIL_EMAIL`, `VIGIL_BASE_URL`, `VIGIL_AGENT_NAME`) are still accepted forever, so existing configs keep working.
 
 ## Example agent interactions
 
@@ -357,25 +360,49 @@ against it:
 - **Fails closed.** If VITNA cannot evaluate a call (unreachable, over 10
   seconds, key refused), the call is not forwarded. `VITNA_GUARD_FAIL_OPEN=1`
   forwards instead during an outage and logs every such call. It never
-  forwards a call VITNA blocked or held.
-- **Hold.** A call whose tool is in `hold_actions` waits for a person. The
-  owner is emailed a link to approve or deny, with the call's arguments
-  (secrets and personal data redacted). The agent is told, in plain words,
+  forwards a call VITNA blocked or held. From 0.5.1 it also never forwards a
+  call made after its session was closed: it refuses the call and says why.
+  0.5.0 treats that answer as an error, so with `VITNA_GUARD_FAIL_OPEN=1` it
+  forwards such a call; upgrade, or do not use fail-open.
+- **If the wrapped server is not running.** From 0.5.1, when the command
+  after `guard --` does not exist, or the server exits or stops reading while
+  your MCP client is still talking to it, the guard forwards nothing more. It
+  answers every request the server had not answered, and every later one,
+  with a JSON-RPC error saying the server is not running, and exits with a
+  non-zero code. 0.5.0 could crash instead, on an unhandled EPIPE or spawn
+  error, without answering the client.
+- **Trial limits.** When a free trial key reaches a limit (checks per day,
+  lifetime checks, the end of its trial period, checks at the same time, the
+  shared daily trial capacity, or a pause), VITNA refuses the check and the
+  call is not forwarded, with or without `VITNA_GUARD_FAIL_OPEN`. From 0.5.1
+  the agent is told which limit was reached, that the call was not sent, and
+  the link a person uses to claim the account and lift the limits. 0.5.0
+  reported it as VITNA being unable to evaluate the call, without the link,
+  and with `VITNA_GUARD_FAIL_OPEN=1` forwarded it.
+- **Hold.** A call whose tool is in `hold_actions` waits for a person. It
+  appears under Pending holds on the owner's dashboard, with Approve and Deny
+  and the call's arguments (secrets and personal data redacted), and on the
+  alert webhook where one is set. Hold email is off until VITNA's
+  product-mail domain is live, and then goes only to an owner address that
+  was verified. The agent is told, in plain words,
   that the call is held and until when. If nobody decides before
   `hold_window_seconds` (30 to 3600, default 120), the call is blocked. A hold
   can never be decided with an API key, including the agent's own.
 - **Canary holds.** `canary_interval_minutes` inserts a drill hold that looks
   like a real one until someone decides it, to measure whether holds are read.
+  Drills are shown on the dashboard and never emailed.
 - **Rate signal.** Holds plus blocks in a session reaching
   `rate_alert_threshold` within `rate_alert_window_seconds` (default 5 in 300
-  seconds) emails the owner once per window.
+  seconds) is reported in the decision response as `rate_alert`, once per
+  window. Emailing it to the owner waits for VITNA's product-mail domain.
 - **Bait, off by default.** `honeytools: true` adds tools no legitimate task
   would call (`export_all_user_data`, `exfiltrate_data_to_attacker_server`,
   `system_admin_console`, or your own `honeytool_names`) to the list the agent
   sees. `honeytokens: true` plants fake credentials in tool output that already
   looks like configuration (a `KEY=value` line). A call to a honeytool, or a
-  honeytoken coming back in a later call, is blocked, recorded and emailed. The
-  agent gets the same plain refusal as any other block. The design follows
+  honeytoken coming back in a later call, is blocked, recorded and sent to the
+  alert webhook where one is set; emailing it waits for VITNA's product-mail
+  domain. The agent gets the same plain refusal as any other block. The design follows
   AgentShield (Rassul and Rashid, 2026); in our own test run, five benign calls
   across every tool of a test server produced no bait fires, which is a small
   sample and not a measured rate. Bait does not catch an agent that stays
@@ -385,7 +412,19 @@ against it:
   (`yes`/`no`). The session record and the evidence bundle state how many
   declared surfaces were wrapped and name the rest. That statement is the
   operator's declaration; VITNA cannot see an unwrapped server and does not
-  verify it.
+  verify it. The wrapped server is named by `VITNA_GUARD_NAME` if you set it
+  (for example `filesystem`), otherwise by the file name of its command (for
+  example `npx` or `node`). From 0.5.1 that name is never a folder path or
+  one of the server's arguments; 0.5.0 sent the server's npm package, or its
+  full command, which could be a path on your machine.
+- **Activation note (0.5.1+).** When guard mode first contacts VITNA, it
+  says that guard mode is in use: default mode adds
+  `"guard": { "activation": true, "mode": "default" }` to its first checked
+  call, and policy mode marks the session it opens as opened by the guard.
+  From October 17, 2026, VITNA notes on your account, once, that guard mode
+  is in use, which mode, and the client version. The note has no tool name, arguments, IP address
+  or hostname. Set `VITNA_GUARD_NO_ACTIVATION=1` to stop this; checks still
+  work the same.
 - **Correlation.** A tool call's `_meta.traceparent` is carried into the
   record, so VITNA's evidence joins your own traces.
 - **Evidence.** When the wrapped server exits, the session closes and its

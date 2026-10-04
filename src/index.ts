@@ -50,7 +50,7 @@
 
 import { createInterface } from 'node:readline';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { homedir, hostname } from 'node:os';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 
@@ -59,7 +59,7 @@ import { randomBytes } from 'node:crypto';
 // and credential handling; it deliberately declares no tools of its own, so
 // the two transports cannot drift apart.
 import { listedTools, resolveTool, SERVER_VERSION } from './tools.js';
-import { runGuard, honeytoolsFor, makeHoneytokens, type GuardDecision, type GuardDeps } from './guard.js';
+import { runGuard, honeytoolsFor, makeHoneytokens, engagementDecision, coverageLabel, trialLimitFrom, type GuardDecision, type GuardDeps, type VitnaResult } from './guard.js';
 
 // Env vars: VITNA_* is canonical. The old VIGIL_* names are accepted forever
 // as aliases, so existing user configs never break.
@@ -115,9 +115,16 @@ function saveCachedCreds(c: Record<string, unknown>): void {
   }
 }
 
+// The agent name a trial is created with. Fixed: 0.5.0 and earlier appended
+// the machine's hostname, which is often a person's name ("Daniels-MacBook-
+// Pro") and stayed on the account. Each trial is a new owner with one agent,
+// so the name does not need to tell machines apart. VITNA_AGENT_NAME still
+// overrides it.
+const TRIAL_AGENT_NAME = 'vitna-compliance-mcp';
+
 async function provision(): Promise<void> {
   const owner_email = env('EMAIL') || `agent-${randomBytes(6).toString('hex')}@mcp.vitna.local`;
-  const agent_name = env('AGENT_NAME') || `vitna-compliance-mcp-${hostname()}`;
+  const agent_name = env('AGENT_NAME') || TRIAL_AGENT_NAME;
   try {
     const res = await fetch(`${VITNA_BASE_URL}/api/setup`, {
       method: 'POST',
@@ -401,36 +408,65 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** A VITNA call that resolves within 10s or reports why not. Never rejects:
  *  a hung check must fail closed, not hang the agent's tool call forever. */
-async function vitnaWithin(method: string, path: string, body?: unknown): Promise<{ ok: true; value: Record<string, unknown> } | { ok: false; reason: string }> {
-  const timeout = new Promise<{ ok: false; reason: string }>((r) => setTimeout(() => r({ ok: false, reason: 'timed out after 10s' }), GUARD_TIMEOUT_MS));
+async function vitnaWithin(method: string, path: string, body?: unknown): Promise<VitnaResult> {
+  // Cleared once the call settles, so a finished call does not hold the guard
+  // open for 10 seconds when it exits.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<{ ok: false; reason: string }>((r) => { timer = setTimeout(() => r({ ok: false, reason: 'timed out after 10s' }), GUARD_TIMEOUT_MS); });
   const call = (async () => {
     try {
       const r = await callVitna(method, path, body);
       const refused = isRefusal(r);
-      if (refused) return { ok: false as const, reason: refused.code };
+      if (refused) {
+        // A free trial limit keeps the server's message and claim link, so the
+        // refusal the agent gets can name the limit and pass the link on.
+        // Without a fresh link from the server, the one cached at setup.
+        const limit = trialLimitFrom(refused.body);
+        if (limit && !limit.claim_url && VITNA_CLAIM_URL) limit.claim_url = VITNA_CLAIM_URL;
+        return { ok: false as const, reason: refused.code, ...(limit ? { limit } : {}) };
+      }
       return { ok: true as const, value: (r ?? {}) as Record<string, unknown> };
     } catch (e) {
       return { ok: false as const, reason: e instanceof Error ? e.message : String(e) };
     }
   })();
-  return Promise.race([call, timeout]);
+  return Promise.race([call, timeout]).finally(() => clearTimeout(timer));
 }
 
-/** Preflight mode (no policy), exactly as shipped in 0.4.0. */
+/**
+ * ACTIVATION NOTE (0.5.1). The guard tells VITNA once per process that guard
+ * mode is in use and which mode, so VITNA can note it on the account (owner
+ * metadata guard_activation: first seen, mode, client version). Default mode
+ * adds one fixed field to the preflight body it already sends, on one call at
+ * a time until a call carrying it comes back with a decision: calls made while
+ * that call is in flight do not carry it, so concurrent first calls send it
+ * once. Policy mode marks the session it opens with metadata.via. Nothing else
+ * is added: no hostname, no path, no tool name. VITNA_GUARD_NO_ACTIVATION=1
+ * sends neither; checks are unchanged.
+ */
+const GUARD_NO_ACTIVATION = env('GUARD_NO_ACTIVATION') === '1';
+const DEFAULT_MODE_ACTIVATION = { activation: true, mode: 'default' } as const;
+/** pending: the next call carries the field; sending: one call carrying it is in flight; done: one was evaluated (or opt-out). */
+let activation: 'pending' | 'sending' | 'done' = GUARD_NO_ACTIVATION ? 'done' : 'pending';
+
+/** Preflight mode (no policy), as shipped in 0.4.0, plus the activation note. */
 async function guardPreflight(action: string, payload: Record<string, unknown>): Promise<GuardDecision> {
-  const r = await vitnaWithin('POST', '/api/preflight/action-check', { action, payload, action_type: 'mcp_tool' });
-  if (!r.ok) return { decision: 'error', reason: r.reason };
+  const body: Record<string, unknown> = { action, payload, action_type: 'mcp_tool' };
+  const announcing = activation === 'pending';
+  if (announcing) {
+    body.guard = DEFAULT_MODE_ACTIVATION;
+    activation = 'sending';
+  }
+  const r = await vitnaWithin('POST', '/api/preflight/action-check', body);
+  const evaluated = r.ok && (r.value.decision === 'allowed' || r.value.decision === 'blocked' || r.value.decision === 'flagged');
+  // Not evaluated (unreachable, a trial limit, no decision): the next call carries it.
+  if (announcing) activation = evaluated ? 'done' : 'pending';
+  if (!r.ok) return r.limit ? { decision: 'limited', reason: r.limit.code, limit: r.limit } : { decision: 'error', reason: r.reason };
   const o = r.value;
   if (o.decision === 'allowed' || o.decision === 'blocked' || o.decision === 'flagged') {
     return { decision: o.decision, reason: typeof o.reason === 'string' ? o.reason : undefined };
   }
   return { decision: 'error', reason: 'no decision in the response' };
-}
-
-/** A label for the wrapped server: its npm package if it has one, else the command. */
-function wrappedLabel(cmd: string[]): string {
-  const pkg = cmd.slice(1).find((a) => /^@?[\w.-]+\/[\w.-]+/.test(a) || /^[\w.-]*mcp[\w.-]*$/i.test(a));
-  return (env('GUARD_NAME') || pkg || cmd[0] || 'wrapped-server').replace(/[^\w@./:+-]/g, '_').slice(0, 80);
 }
 
 /**
@@ -451,7 +487,8 @@ function engagementGuard(policyFile: string, wrapped: string[]) {
   const list = (v: string | undefined) => (v ?? '').split(',').map((x) => x.trim()).filter(Boolean);
   const builtin = env('GUARD_BUILTIN_TOOLS');
   const coverage = {
-    wrapped: [wrappedLabel(wrapped)],
+    // VITNA_GUARD_NAME, else the command's file name: never a path or an argument.
+    wrapped: [coverageLabel(env('GUARD_NAME'), wrapped[0])],
     unwrapped: list(env('GUARD_UNWRAPPED')),
     builtin_tools: builtin === 'yes' || builtin === 'no' ? builtin : 'undeclared',
   };
@@ -461,7 +498,9 @@ function engagementGuard(policyFile: string, wrapped: string[]) {
   const honeytokens = policy.honeytokens === true ? makeHoneytokens() : null;
 
   const session: Promise<string | null> = (async () => {
-    const r = await vitnaWithin('POST', '/api/engagement/open', { scope_policy: policy, coverage, metadata: { via: 'vitna-guard', version: SERVER_VERSION } });
+    // metadata.via is the policy-mode activation note (see GUARD_NO_ACTIVATION).
+    const metadata = GUARD_NO_ACTIVATION ? { version: SERVER_VERSION } : { via: 'vitna-guard', version: SERVER_VERSION };
+    const r = await vitnaWithin('POST', '/api/engagement/open', { scope_policy: policy, coverage, metadata });
     const sid = r.ok && typeof r.value.session_id === 'string' ? r.value.session_id : null;
     if (sid) console.error(`[vitna-guard] engagement session ${sid} opened (coverage: ${(r as { value: Record<string, unknown> }).value.coverage ? JSON.stringify(((r as { value: Record<string, unknown> }).value.coverage as Record<string, unknown>).coverage) : 'not recorded'})`);
     else console.error(`[vitna-guard] could not open an engagement session (${r.ok ? 'no session_id' : r.reason}); every tool call will be refused`);
@@ -491,14 +530,9 @@ function engagementGuard(policyFile: string, wrapped: string[]) {
         ...(call.meta ? { _meta: call.meta } : {}),
         ...(call.bait ? { guard_event: call.bait } : {}),
       });
-      if (!r.ok) return { decision: 'error', reason: r.reason };
-      const o = r.value;
-      const reason = typeof o.reason === 'string' ? o.reason : undefined;
-      if (o.decision === 'allow') return { decision: 'allowed', reason };
-      if (o.decision === 'deny') return { decision: 'blocked', reason };
-      const h = o.hold as { hold_id?: string; deadline?: string } | undefined;
-      if (o.decision === 'hold' && h?.hold_id && h.deadline) return { decision: 'held', reason, hold: { hold_id: h.hold_id, deadline: h.deadline } };
-      return { decision: 'error', reason: 'no decision in the response' };
+      // A 409 session_closed becomes `closed`: refused, never forwarded,
+      // fail-open or not (see engagementDecision in guard.ts).
+      return engagementDecision(r);
     },
     async waitForHold(hold, progress) {
       const deadline = Date.parse(hold.deadline);
