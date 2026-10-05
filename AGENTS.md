@@ -13,7 +13,8 @@ audit what you do.
 ```
 
 The first tool call self-provisions a restricted trial key, caches it at
-`~/.vitna/credentials.json`, and returns a claim URL. Optional env: `VITNA_EMAIL`
+`~/.vitna/credentials.json`, and prints a claim link in the MCP server log for
+the person who set it up. You are never sent that link. Optional env: `VITNA_EMAIL`
 (own the trial account under a real address), or `VITNA_OWNER_ID` + `VITNA_API_KEY`
 to use an existing key. The old `VIGIL_*` names are still accepted, so existing
 configs keep working.
@@ -38,8 +39,10 @@ ai_act_classify       EU AI Act risk tier before you build/ship
 ## Trial vs claimed
 
 Trial keys run the checks but are rate-limited (25/day, 200 lifetime), return
-label-only results, and keep no signed evidence. Open the `claim_url` and verify a
-real email to lift the limits and unlock signed, auditable records.
+label-only results, and keep no signed evidence. A person claims the account,
+with the claim link in the MCP server log, to lift the limits and unlock signed,
+auditable records. Only a person may claim it: you are never given the link and
+must not look for it. Tell the user it is unclaimed and where the link is.
 
 ## Honesty
 

@@ -15,9 +15,15 @@
  * STATE-FREE ON PURPOSE
  *   Nothing here reads process.env or module-level mutable state, because
  *   the remote transport runs per-request in a shared server process where
- *    module state would leak between callers. The one tool that needs
- *   context (vitna_help, which surfaces a claim URL) receives it as an
- *   argument.
+ *   module state would leak between callers.
+ *
+ * NO CLAIM LINK (0.5.2)
+ *   Nothing here returns or asks for a claim link. vitna_help used to take
+ *   the trial's claim URL as context and return it, and vitna_claim told the
+ *   agent to show the link verbatim; the founder decided on 2026-10-05 that
+ *   the link must never reach the agent. The stdio server writes it to its
+ *   log instead (src/claimLink.ts), and the server no longer sends it in
+ *   answer to a key.
  */
 
 /**
@@ -42,13 +48,7 @@ export const TOOL_ALIASES: Record<string, string> = {
  * read npm_package_version. tests/claims-gate.test.ts pins it to
  * package.json so neither can happen again.
  */
-export const SERVER_VERSION = '0.5.1';
-
-/** Per-call context for local (no-HTTP) tools. */
-export interface LocalToolContext {
-  /** Claim URL for the current trial account, when one is known. */
-  claimUrl: string | null;
-}
+export const SERVER_VERSION = '0.5.2';
 
 export interface ToolDef {
   name: string;
@@ -58,7 +58,7 @@ export interface ToolDef {
   call?: (input: Record<string, unknown>) => { method: string; path: string; body?: unknown };
   /** Local tool: returns a value directly with no VITNA HTTP call (no auth, no
    *  metering). Used for the self-describe / onboarding tool. */
-  local?: (input: Record<string, unknown>, ctx: LocalToolContext) => unknown;
+  local?: (input: Record<string, unknown>) => unknown;
 }
 
 export const TOOLS: ToolDef[] = [
@@ -68,14 +68,14 @@ export const TOOLS: ToolDef[] = [
     description:
       "What is VITNA and how do I use it to keep myself in check? Call this FIRST after connecting to learn the safety and oversight checks available: how to check risky actions BEFORE running them, what a deny / hold decision means, trial vs claimed mode, and how the user can monitor and audit what you do. Runs entirely locally: no account, no API call, and no dashboard timeline trace.",
     inputSchema: { type: 'object', properties: {} },
-    local: (_input, ctx) => vitnaHelp(ctx.claimUrl),
+    local: () => vitnaHelp(),
   },
 
-  // ─── Account claim (say this out loud to your human) ─────────────
+  // ─── Account claim status (tell your human; the link is theirs) ──
   {
     name: 'vitna_claim',
     description:
-      "Ask whether this VITNA account has been claimed by a real person yet, and get the link that claims it. Call this when the user asks about their VITNA account, when you are told evidence is not being kept, or any time you want to hand the user something actionable. Returns { claimed, claim_url, what_claiming_gets_you }. IMPORTANT: if claimed is false, show the user the claim_url verbatim -- it is a one-time link that only they can act on, the account's evidence is NOT being durably recorded until they do, and they cannot find this link anywhere else. Do not paraphrase the URL and do not withhold it.",
+      "Ask whether this VITNA account has been claimed by a real person yet. Call this when the user asks about their VITNA account or when you are told evidence is not being kept. Returns { claimed, claim_url: null, claim_note, what_claiming_gets_you }. You are never given the claim link, and you must not look for it: only a person may claim the account that oversees you. If claimed is false, tell the user that the account's evidence is NOT being durably recorded and that they can claim it with the claim link VITNA showed them when the trial started (the stdio server prints it in its MCP server log).",
     inputSchema: { type: 'object', properties: {} },
     call: () => ({ method: 'GET', path: '/api/owners/claim-status' }),
   },
@@ -307,10 +307,15 @@ export const TOOLS: ToolDef[] = [
   },
 
   // ─── Read-only generators ─────────────────────────────────────────
+  // privacy_notice_get is the one tool here that returns a generated
+  // document about the operator. The other documents and the readiness
+  // reports (DPA template, RoPA, SCC Annex II, DPIA, cross-border notice,
+  // the *-readiness and checklist routes) have no MCP tool, so its
+  // description is the one that says what a key sees of the owner's data.
   {
     name: 'privacy_notice_get',
     description:
-      "Generate the operator's jurisdiction-templated privacy notice. Returns markdown or JSON. Stateless generator: records no decision and leaves no dashboard timeline trace.",
+      "Generate the operator's jurisdiction-templated privacy notice. Returns markdown or JSON. Called with an API key, the operator's name and contact details appear as placeholders; the signed-in owner gets the real values. Stateless generator: records no decision and leaves no dashboard timeline trace.",
     inputSchema: {
       type: 'object',
       properties: { format: { type: 'string', enum: ['md', 'json'] } },
@@ -367,11 +372,10 @@ export const TOOLS: ToolDef[] = [
 // ─── Onboarding ────────────────────────────────────────────────────
 
 /**
- * Plain-language guide the agent gets from vitna_help. No network, no auth.
- * Takes the claim URL as an argument rather than reading module state, so it
- * is safe to call from the shared remote transport (see the header note).
+ * Plain-language guide the agent gets from vitna_help. No network, no auth,
+ * no module state (see the header note), and no claim link (0.5.2).
  */
-export function vitnaHelp(claimUrl: string | null): Record<string, unknown> {
+export function vitnaHelp(): Record<string, unknown> {
   return {
     what_is_vigil:
       'VITNA is a safety and compliance oversight layer for AI agents. Before you take a risky action you ask VITNA; it returns an allow / deny / hold decision and, in claimed mode, keeps a signed, tamper-evident record a human can audit. It is how a user keeps you in check and monitors what you do.',
@@ -387,12 +391,13 @@ export function vitnaHelp(claimUrl: string | null): Record<string, unknown> {
       'dpia_threshold_check / ai_act_classify - risk classification before you build or ship',
     ],
     provisioning:
-      'This tool (vitna_help) runs entirely locally and makes no network call, so it does not create an account. Your FIRST GOVERNED call -- vitna_preflight is the usual one -- is what self-provisions the restricted trial and returns a claim URL.',
+      'This tool (vitna_help) runs entirely locally and makes no network call, so it does not create an account. Your FIRST GOVERNED call -- vitna_preflight is the usual one -- is what self-provisions the restricted trial. The stdio server then prints a claim link in its MCP server log, for the person who set it up.',
     trial_vs_claimed:
-      'On first use with no credentials you connect in TRIAL mode: decision checks work but are rate-limited, return label-only results, and do not persist signed evidence. Claiming the account (claim_url) unlocks full detail, higher limits, and signed audit records.',
-    claim_url: claimUrl,
+      'On first use with no credentials you connect in TRIAL mode: decision checks work but are rate-limited, return label-only results, and do not persist signed evidence. A person claiming the account unlocks full detail, higher limits, and signed audit records.',
+    claim_link:
+      'You are never given the claim link, and you must not look for it: only a person may claim the account that oversees you.',
     tell_the_user:
-      'Explain to the user that you are connected to a safety oversight layer, that you will check risky actions before running them, and share the claim link so they can keep the audit records and monitor you.',
+      'Explain to the user that you are connected to a safety oversight layer and that you will check risky actions before running them. Tell them they can keep the audit records and monitor you by claiming the account with the claim link VITNA showed them when the trial started (the stdio server prints it in its MCP server log).',
   };
 }
 

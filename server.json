@@ -3,7 +3,7 @@
   "name": "xyz.costrinity/vitna-compliance-preflight",
   "title": "VITNA — Agent Compliance Preflight",
   "description": "Pre-action compliance for AI agents: allow, block or hold. 24 statutes, 13 jurisdictions.",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "websiteUrl": "https://vitna.costrinity.xyz",
   "repository": {
     "url": "https://github.com/COSTRINITY/vitna-compliance-mcp",
@@ -28,7 +28,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@costrinity/vitna-compliance-mcp",
-      "version": "0.5.1",
+      "version": "0.5.2",
       "transport": {
         "type": "stdio"
       },
@@ -52,6 +52,11 @@
           "name": "VITNA_BASE_URL",
           "description": "VITNA base URL; override only for self-hosted. The old VIGIL_BASE_URL name is still accepted.",
           "default": "https://vitna.costrinity.xyz"
+        },
+        {
+          "name": "VITNA_OPEN_CLAIM",
+          "description": "Set to 1 to have the trial's claim link opened in your default browser when a trial starts. Either way the link is printed in the MCP server log, and the agent is never sent it.",
+          "isRequired": false
         }
       ]
     }

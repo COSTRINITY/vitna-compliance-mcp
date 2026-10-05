@@ -41,12 +41,24 @@
  * TRIAL LIMITS (0.5.1)
  *   A restricted trial key that hits a limit (daily, lifetime, its 72 hours,
  *   checks at the same time, the shared daily capacity, or a pause) gets a
- *   refusal from VITNA that names the limit and carries a fresh claim link.
- *   That is VITNA answering, not VITNA unreachable, so the call is refused
- *   (fail-open or not) and the agent is told which limit, that the call was
- *   not sent, and the claim link, so a person can claim the account. 0.5.0
- *   reported it as "could not evaluate ... Retry once VITNA is reachable" and
- *   dropped the link.
+ *   refusal from VITNA that names the limit. That is VITNA answering, not
+ *   VITNA unreachable, so the call is refused (fail-open or not) and the
+ *   agent is told which limit and that the call was not sent. 0.5.0 reported
+ *   it as "could not evaluate ... Retry once VITNA is reachable".
+ *
+ * NO CLAIM LINK TO THE AGENT (0.5.2)
+ *   0.5.1 ended that refusal with the claim link, for the agent to pass on.
+ *   The founder decided on 2026-10-05 that the link must never reach the
+ *   agent, so the refusal now says a person finds it in the MCP server log.
+ *   The guard's own refusals and progress messages lose any claim link or
+ *   token (src/claimLink.ts). In the wrapped server's output a VITNA claim
+ *   link (/claim?owner=, as written or percent-encoded) and a claim token
+ *   of the shape VITNA mints today (v2.<13-digit ms>.<mac>, wherever it
+ *   starts, its dots written or percent-encoded) are replaced, in a value
+ *   or in the name of a field of a JSON line, and nothing else is touched.
+ *   A field renamed that way keeps its value, numbered if its new name is
+ *   taken. Its error for a wrapped server
+ *   that is not running holds only the command's name.
  *
  * WHAT IT DOES NOT COVER
  *   Containment is exactly as wide as the servers you wrap. A tool the agent
@@ -57,6 +69,7 @@
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { randomBytes } from 'node:crypto';
+import { scrubText, scrubForwardedLine, CLAIM_LINK_IN_LOG } from './claimLink.js';
 
 export type GuardDecision = {
   /**
@@ -69,14 +82,15 @@ export type GuardDecision = {
   limit?: TrialLimit;
 };
 
-/** A check refused by a free trial limit, as VITNA reported it. */
+/**
+ * A check refused by a free trial limit, as VITNA reported it. No claim link
+ * (0.5.2): 0.5.1 kept the server's claim_url here to put it in the refusal.
+ */
 export interface TrialLimit {
   /** The server's code, e.g. daily_cap_reached. */
   code: string;
   /** The server's own sentence about the limit, when it sent one. */
   message?: string;
-  /** Where a person claims the account and lifts the limits. */
-  claim_url?: string;
 }
 
 /**
@@ -95,8 +109,10 @@ export const TRIAL_LIMITS: Readonly<Record<string, string>> = {
 
 /**
  * The trial limit in a VITNA refusal body, or null when the refusal is
- * something else. The server's message and claim link are kept only when
- * they are plain: a sentence of at most 300 characters, an http(s) URL.
+ * something else. The server's message is kept only when it is plain: a
+ * sentence of at most 300 characters, with any claim link or token taken out.
+ * A claim_url in the body is never kept (0.5.2); index.ts has already written
+ * it to the MCP server log.
  */
 export function trialLimitFrom(body: unknown): TrialLimit | null {
   if (!body || typeof body !== 'object') return null;
@@ -104,22 +120,21 @@ export function trialLimitFrom(body: unknown): TrialLimit | null {
   if (typeof b.error !== 'string' || !Object.prototype.hasOwnProperty.call(TRIAL_LIMITS, b.error)) return null;
   const limit: TrialLimit = { code: b.error };
   if (typeof b.message === 'string') {
-    const m = b.message.replace(/\s+/g, ' ').trim();
+    const m = scrubText(b.message).value.replace(/\s+/g, ' ').trim();
     if (m) limit.message = m.length > 300 ? `${m.slice(0, 297)}...` : m;
   }
-  if (typeof b.claim_url === 'string' && /^https?:\/\/[^\s"'<>]{1,500}$/i.test(b.claim_url)) limit.claim_url = b.claim_url;
   return limit;
 }
 
-/** What the agent is told when a trial limit refused the check. */
+/**
+ * What the agent is told when a trial limit refused the check: which limit,
+ * that the call was not sent, and that a person can claim the account with
+ * the link in the MCP server log. Never the link itself (0.5.2).
+ */
 export function trialLimitRefusal(name: string, limit: TrialLimit): string {
   const which = TRIAL_LIMITS[limit.code] ?? 'a trial limit';
   const said = limit.message ? ` VITNA says: ${/[.!?]$/.test(limit.message) ? limit.message : `${limit.message}.`}` : '';
-  // The link goes last, so no punctuation can be read as part of it.
-  const claim = limit.claim_url
-    ? ` To lift the trial limits, a person can claim this VITNA account. Give the user this claim link: ${limit.claim_url}`
-    : ' To lift the trial limits, a person can claim this VITNA account with the claim link VITNA gave when the trial started.';
-  return `VITNA guard did not run "${name}": the free VITNA trial limit was reached (${which}).${said} The call was not sent to the server.${claim}`;
+  return `VITNA guard did not run "${name}": the free VITNA trial limit was reached (${which}).${said} The call was not sent to the server. To lift the trial limits: ${CLAIM_LINK_IN_LOG}`;
 }
 
 export type BaitEvent = 'honeytool' | 'honeytoken';
@@ -267,8 +282,9 @@ export function actionText(name: string, args: Record<string, unknown>): string 
   return `${name} ${parts.join(' ')}`.trim().slice(0, 8000);
 }
 
+/** A refusal to the client. Its text never carries a claim link or token (0.5.2), whatever a reason from VITNA held. */
 function refusal(id: unknown, text: string): string {
-  return JSON.stringify({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text }], isError: true } });
+  return JSON.stringify({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: scrubText(text).value }], isError: true } });
 }
 
 function blocked(name: string, reason?: string): string {
@@ -348,7 +364,7 @@ export async function gate(
   // VITNA, and a trial limit or a closed session is VITNA answering.
   if (d.decision === 'limited') {
     const limit = d.limit ?? { code: d.reason ?? 'trial_limit' };
-    deps.log(`free trial limit reached (${limit.code}): refused "${name}"; the refusal carries the claim link`);
+    deps.log(`free trial limit reached (${limit.code}): refused "${name}"; the refusal does not carry the claim link, which a person finds in this log from when the trial started`);
     return { reply: refusal(msg.id, trialLimitRefusal(name, limit)) };
   }
 
@@ -364,7 +380,7 @@ export async function gate(
     let step = 0;
     const progress = (message: string) => {
       if (token === undefined) return;
-      notify(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/progress', params: { progressToken: token, progress: ++step, message } }));
+      notify(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/progress', params: { progressToken: token, progress: ++step, message: scrubText(message).value } }));
     };
     progress(`Held for human review until ${until}. A person decides; if nobody does, it is blocked.`);
     const outcome = await deps.waitForHold(d.hold, progress);
@@ -454,6 +470,16 @@ export function wrappedServerFailure(why: string): string {
  *   has answered a request, once the client closes its side, or after
  *   FAILURE_GRACE_MS. A request that arrives after the failure is never sent
  *   to VITNA either.
+ *
+ *   0.5.2 corrects two cases. A client that closes its side right after
+ *   writing is still owed answers to what it wrote, so a server that exits
+ *   owing them is a failure whether or not the client has closed, and the
+ *   owed requests are answered before the guard exits (0.5.1 exited without
+ *   answering them). And an answer the server writes late, to a request
+ *   already answered with the error, is dropped, so no request gets two
+ *   answers (0.5.1 passed it on after the error). If the client has stopped
+ *   reading as well, writing those answers fails with EPIPE: the guard logs
+ *   it, still runs onExit (policy mode closes its session) and exits.
  */
 export function runGuard(command: string, commandArgs: string[], deps: GuardDeps): void {
   // No shell, except on Windows, where `npx` is npx.cmd and cannot be started
@@ -471,6 +497,18 @@ export function runGuard(command: string, commandArgs: string[], deps: GuardDeps
   const methodById = new Map<string, string>();
   const out = (l: string) => process.stdout.write(l + '\n');
 
+  // A client that has stopped reading (it exited, or closed both pipes) makes
+  // the next write an EPIPE. Since 0.5.2 the guard writes the answers it owes
+  // after the client closes its input, so that write can come at the end of
+  // a session. It is logged, not thrown: an unhandled EPIPE crashed the
+  // guard before onExit ran, so policy mode left its session open.
+  let clientStoppedReading = false;
+  process.stdout.on('error', (e: NodeJS.ErrnoException) => {
+    if (clientStoppedReading) return;
+    clientStoppedReading = true;
+    deps.log(`the client stopped reading (${e.code ?? e.message}); what the guard still owed it was not delivered`);
+  });
+
   // ── the wrapped server failed (see the comment above) ──────────────────
   let failure: string | null = null;
   let failCode = 1;
@@ -479,10 +517,20 @@ export function runGuard(command: string, commandArgs: string[], deps: GuardDeps
   let leaving = false;
   /** The requests being checked by gate(), one entry per line, so a failure can answer them too. */
   const checking = new Set<{ id: string }>();
+  /** The requests answered with the failure error. A late answer from the server to one of them is dropped. */
+  const refused = new Set<string>();
   const replies: Promise<void>[] = [];
   const refuse = (id: string) => {
+    refused.add(id);
     const line = JSON.stringify({ jsonrpc: '2.0', id: JSON.parse(id), error: { code: -32603, message: failure } });
     replies.push(new Promise<void>((done) => { process.stdout.write(line + '\n', () => done()); }));
+  };
+  /** Every reply queued so far, including any queued while the earlier ones were being written. */
+  const flushed = async (): Promise<void> => {
+    for (let seen = 0; seen < replies.length;) {
+      seen = replies.length;
+      await Promise.allSettled(replies);
+    }
   };
   let graceTimer: ReturnType<typeof setTimeout> | undefined;
   /**
@@ -498,7 +546,7 @@ export function runGuard(command: string, commandArgs: string[], deps: GuardDeps
     if (leaving) return;
     leaving = true;
     clearTimeout(graceTimer);
-    void Promise.allSettled(replies)
+    void flushed()
       .then(() => deps.onExit?.())
       .catch(() => {})
       .finally(() => {
@@ -533,9 +581,20 @@ export function runGuard(command: string, commandArgs: string[], deps: GuardDeps
   createInterface({ input: child.stdout! }).on('line', (l) => {
     let id: string | undefined;
     try { const m = JSON.parse(l); if (m && m.id !== undefined && m.method === undefined) id = JSON.stringify(m.id); } catch { /* pass through */ }
+    if (id !== undefined && refused.has(id)) {
+      // Already answered with the failure error: a second answer would give
+      // the client two for one request.
+      deps.log(`dropped a late answer from the server to request ${id}, which was already answered with an error`);
+      return;
+    }
     const method = id ? methodById.get(id) : undefined;
     if (id) methodById.delete(id);
-    out(shapeServerLine(l, method, deps));
+    // A VITNA claim link or v2 claim token in the wrapped server's output (a
+    // file or log the agent asked it to read) is replaced too (0.5.2,
+    // src/claimLink.ts).
+    const forwarded = scrubForwardedLine(shapeServerLine(l, method, deps));
+    if (forwarded.withheld) deps.log(`withheld ${forwarded.withheld} VITNA claim link(s) or token(s) from the wrapped server's output`);
+    out(forwarded.line);
   });
 
   // Client -> server. Each line is handled on its own: a call waiting minutes
@@ -572,9 +631,12 @@ export function runGuard(command: string, commandArgs: string[], deps: GuardDeps
   });
 
   child.on('exit', (code, signal) => {
-    // Gone while the client is still talking to it, owing an answer or with a
-    // failing exit code: the client is told, not left waiting on a dead pipe.
-    if (!clientClosed && !stopping && (methodById.size > 0 || checking.size > 0 || code !== 0)) {
+    // Gone while it owes an answer, whether or not the client has closed its
+    // side (a request written before the close is still owed one), or with a
+    // failing exit code while the client is still talking to it: the client
+    // is told, not left waiting on a dead pipe.
+    const owed = methodById.size > 0 || checking.size > 0;
+    if (!stopping && (owed || (!clientClosed && code !== 0))) {
       fail(`${named} exited ${signal ? `on ${signal}` : `with code ${code}`}`, code ?? 1);
       return;
     }

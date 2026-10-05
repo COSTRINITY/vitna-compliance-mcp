@@ -127,7 +127,7 @@ MCowBQYDK2VwAyEAsEBWg2cdc3sb0HAozBmtuk9q9hEdyG2bcLq4gpfudWg=
 
 Published in four places, two of which are not our infrastructure: our API at [`/api/evidence/pubkey`](https://vitna.costrinity.xyz/api/evidence/pubkey), [`PUBKEY.md`](./PUBKEY.md) in the public GitHub mirror, this README on the npm registry, and embedded in `verify-evidence.mjs` so the verifier never fetches a key at runtime. A mismatch between any of those copies would be publicly visible. Honest limit: this is multi-location publication, not a formal transparency log or a third-party notary.
 
-If a user tells their agent "connect to something that stops you from going rogue" or "lets me monitor what you do," this is the thing to wire in. It blocks nothing on its own: VITNA evaluates and records, and your agent honors the deny / hold. **Connect with zero setup**, with no credentials: your first GOVERNED call self-provisions a restricted trial key and returns a claim URL. `vitna_preflight` is the one to start with. `vitna_help` runs entirely locally and makes **no** network call, so it explains things but does not create the trial — reach for it if you get stuck, not first.
+If a user tells their agent "connect to something that stops you from going rogue" or "lets me monitor what you do," this is the thing to wire in. It blocks nothing on its own: VITNA evaluates and records, and your agent honors the deny / hold. **Connect with zero setup**, with no credentials: your first GOVERNED call self-provisions a restricted trial key and prints its claim link in the MCP server log, for you and not for your agent. `vitna_preflight` is the one to start with. `vitna_help` runs entirely locally and makes **no** network call, so it explains things but does not create the trial: reach for it if you get stuck, not first.
 
 This server lets your agent check itself before it acts.
 
@@ -221,16 +221,23 @@ You can add the server with **no credentials at all**:
 On the first tool call, the server provisions a **restricted trial key** for you
 (via `/api/setup`) and caches it at `~/.vitna/credentials.json`. The trial key
 runs the compliance decision checks but is capped (checks per day + lifetime),
-short-lived, and does **not** write signed evidence.
+short-lived, and does **not** write signed evidence. The claim link is not
+cached there: your agent can read files.
 
 ### Then claim your dashboard
 
 **This is the step people miss.** Until the account is claimed, your agent's
-decisions are evaluated but *nothing is durably recorded* — there is no evidence
+decisions are evaluated but *nothing is durably recorded*: there is no evidence
 to export later, because none was kept.
 
-Ask your agent to call the **`vitna_claim`** tool. It returns a claim URL that
-only you can act on; open it, verify a real email, and you get:
+The claim link is printed in the **MCP server log** when the trial starts: the
+server's stderr, the channel an MCP server logs to (where your MCP client shows
+it depends on the client). Open the link and choose Continue with GitHub or
+Create a passkey. It works once, for 24 hours. If it has expired, open it
+anyway: within 72 hours of the trial starting, the page offers a fresh link,
+once, kept in your browser and never sent to your agent. After that, the way on
+is a new trial. Set `VITNA_OPEN_CLAIM=1` to have it opened in your default
+browser as well. You get:
 
 - durable Ed25519-signed evidence records you can export and verify offline
 - the per-day and per-lifetime trial caps lifted, and the key stops expiring
@@ -239,11 +246,27 @@ only you can act on; open it, verify a real email, and you get:
   claimed
 - a way to recover the key if you lose it
 
-The claim URL is also printed to stderr on first provision, but agents rarely
-surface stderr to you — `vitna_claim` exists because that is where this used to
-get lost. Set `VITNA_EMAIL` to own the trial account under a real address from
-the start; otherwise a throwaway is used and you bind a real email when you
-claim.
+**Your agent is never sent the link (0.5.2).** Only a person may claim the
+account that oversees the agent, so no tool result, error or notice carries it,
+in normal or guard mode. The agent is told that the account is unclaimed and
+that you can claim it with the link in the MCP server log. The `vitna_claim`
+tool answers whether the account has been claimed (its `claim_url` is always
+null). The trial key cannot claim the account either: VITNA refuses every claim
+request that carries an API key, so only the link a person opens claims it.
+A link that a VITNA answer still carries is written to the log and
+taken out, as written or percent-encoded inside another value (a `next=`
+address, say), and so is a claim token on its own. Either is taken out of the
+name of a field as well as its value; a field whose new name another field
+already has gets ` (2)`, ` (3)` and so on, so no value is dropped.
+A claim link that 0.5.1 kept in `~/.vitna/credentials.json` is
+written to the log once and removed from that file. That happens whether the
+server uses the key in that file or `VITNA_OWNER_ID` and `VITNA_API_KEY`; the
+rest of the file is kept as it was, and the environment credentials are not
+written to it. 0.5.0 and 0.5.1 put the link in the agent's tool results so the
+agent would pass it on.
+
+Set `VITNA_EMAIL` to own the trial account under a real address from the
+start; otherwise a throwaway is used.
 
 ### With your own key
 
@@ -270,6 +293,7 @@ claim.
 - `VITNA_EMAIL`: optional. Email to own the self-provisioned trial account. A throwaway is used if unset (claim later to bind a real email).
 - `VITNA_BASE_URL`: defaults to `https://vitna.costrinity.xyz`. Point at your own VITNA instance if self-hosted.
 - `VITNA_AGENT_NAME`: optional. The agent name a self-provisioned trial account is created with. Defaults to `vitna-compliance-mcp`. Versions before 0.5.1 added your machine's hostname to that name; 0.5.1 and later do not.
+- `VITNA_OPEN_CLAIM`: optional, 0.5.2 and later. Set to `1` to have the claim link opened in your default browser when a trial starts, as well as printed in the MCP server log. Off by default, because the server often runs where nobody is at the screen, the call that starts the trial is your agent's, and an agent that drives your browser could read the page. Only an https `/claim` link is opened, without a shell.
 
 The old `VIGIL_*` names for all of these (`VIGIL_OWNER_ID`, `VIGIL_API_KEY`, `VIGIL_EMAIL`, `VIGIL_BASE_URL`, `VIGIL_AGENT_NAME`) are still accepted forever, so existing configs keep working.
 
@@ -370,7 +394,12 @@ against it:
   answers every request the server had not answered, and every later one,
   with a JSON-RPC error saying the server is not running, and exits with a
   non-zero code. 0.5.0 could crash instead, on an unhandled EPIPE or spawn
-  error, without answering the client.
+  error, without answering the client. From 0.5.2 this holds when your
+  client has already closed its side after writing: the requests it wrote
+  are answered before the guard exits, where 0.5.1 exited without answering
+  them. 0.5.2 also drops an answer the server writes late, to a request the
+  guard has already answered with that error, so no request gets two
+  answers.
 - **Trial limits.** When a free trial key reaches a limit (checks per day,
   lifetime checks, the end of its trial period, checks at the same time, the
   shared daily trial capacity, or a pause), VITNA refuses the check and the
@@ -378,7 +407,20 @@ against it:
   the agent is told which limit was reached, that the call was not sent, and
   the link a person uses to claim the account and lift the limits. 0.5.0
   reported it as VITNA being unable to evaluate the call, without the link,
-  and with `VITNA_GUARD_FAIL_OPEN=1` forwarded it.
+  and with `VITNA_GUARD_FAIL_OPEN=1` forwarded it. From 0.5.2 the refusal no
+  longer carries the link: it says a person can claim the account with the
+  claim link in the MCP server log.
+- **No claim link through the guard (0.5.2+).** The guard's own refusals and
+  progress messages never carry a claim link, and a VITNA claim link
+  (`/claim?owner=`) in the output of a server it wraps is replaced with a
+  note that the link is in the MCP server log, so a log file read through a
+  wrapped server does not hand the agent the link as written. That includes
+  the link percent-encoded inside another value, and a claim token of the
+  shape VITNA issues today (`v2.` then a 13-digit time and a 43-character
+  code) wherever it starts, with its dots written or percent-encoded, in a
+  value or in the name of a field. A field whose new name another field
+  already has gets ` (2)`, ` (3)` and so on, so no value is dropped.
+  Nothing else in that output is changed (see Honest limits).
 - **Hold.** A call whose tool is in `hold_actions` waits for a person. It
   appears under Pending holds on the owner's dashboard, with Approve and Deny
   and the call's arguments (secrets and personal data redacted), and on the
@@ -421,7 +463,7 @@ against it:
   says that guard mode is in use: default mode adds
   `"guard": { "activation": true, "mode": "default" }` to its first checked
   call, and policy mode marks the session it opens as opened by the guard.
-  From October 17, 2026, VITNA notes on your account, once, that guard mode
+  From October 19, 2026, VITNA notes on your account, once, that guard mode
   is in use, which mode, and the client version. The note has no tool name, arguments, IP address
   or hostname. Set `VITNA_GUARD_NO_ACTIVATION=1` to stop this; checks still
   work the same.
@@ -446,6 +488,9 @@ What the numbers above do **not** mean:
 - **Three counts that are easy to confuse:** 23 MCP tools, 22 identifier-validator API routes (only 6 of which are exposed as MCP tools here), and 11 PII detectors. They are unrelated sets.
 - **Detection is heuristic** regex/signature matching — not a sandbox, not a semantic analyzer. Novel or obfuscated payloads can pass. Use it as one layer, not the only one.
 - **VITNA does not enforce, except in guard mode.** The tools return a decision and honoring it is your system's job. Guard mode refuses to forward a call VITNA did not allow, but only for the MCP servers you put behind it.
+- **The claim link is kept from the agent's tool results, not from the agent's machine.** It is printed in the MCP server log. An agent that can read that log, or your browser, by another route (a built-in shell, an unwrapped server, browser control) can still read the link there.
+- **What the guard replaces in a wrapped server's output is narrow.** It replaces a VITNA claim link (`/claim?owner=`), as written or percent-encoded up to eight times over, and a claim token of the current shape (`v2.` then a 13-digit time and a 43-character code) wherever it starts: straight after a letter, a digit, `-`, `.` or `_`, after quoted-printable `t=3D`, and with its dots written as `.` or percent-encoded (`%2E`) up to eight times over. On a line that is JSON it replaces them in the name of a field as well as in a value. It passes on, unchanged: an older token shape (a time and a code without `v2.`), which looks too much like other identifiers to replace in output that is not ours; a `v2.` token whose time is not 13 digits; a token whose code runs straight on into another letter, digit, `-` or `_`, which makes it a longer string, not a token; an address on a `/claim?` path that does not go on with `owner=`; and a link or token split across lines (the guard reads one line at a time) or disguised in any way other than percent-encoding its separators and dots up to eight times over, such as a letter percent-encoded, a dot written as quoted-printable `=2E`, or a `\u` escape on a line that is not JSON. A link it does not recognise still loses a current-shape token written inside it.
+- **VITNA's own answers and the guard's own messages are scrubbed more widely, not completely.** Any `/claim?` link is taken out, as written or percent-encoded up to eight times over, and so is the current token shape wherever it starts, as above. An older-shape token, or a `v2.` token whose time is not 13 digits, is taken out when its time is 12 to 14 digits long and it stands on its own or comes straight after a percent-encoded byte (the `%3D` of `t%3D`), with its dots written as `.`. One whose time is shorter than 12 or longer than 14 digits passes even on its own. It passes when it follows straight on from a letter, `-`, `.` or `_`, or has percent-encoded dots. A `v2.` one also passes straight after a digit, and an older-shape one after digits that make its time longer than 14 digits (one digit before a 13-digit time is read as part of a 14-digit time, and is taken out with it). Any token whose code runs straight on into another letter, digit, `-` or `_` passes too, and so does anything split or disguised as above, less any current-shape token written inside it.
 
 ## License
 

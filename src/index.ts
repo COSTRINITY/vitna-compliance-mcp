@@ -49,6 +49,7 @@
  */
 
 import { createInterface } from 'node:readline';
+import { spawn } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -60,6 +61,7 @@ import { randomBytes } from 'node:crypto';
 // the two transports cannot drift apart.
 import { listedTools, resolveTool, SERVER_VERSION } from './tools.js';
 import { runGuard, honeytoolsFor, makeHoneytokens, engagementDecision, coverageLabel, trialLimitFrom, type GuardDecision, type GuardDeps, type VitnaResult } from './guard.js';
+import { scrubValue, claimLinkForPerson, openCommand, CLAIM_LINK_IN_LOG } from './claimLink.js';
 
 // Env vars: VITNA_* is canonical. The old VIGIL_* names are accepted forever
 // as aliases, so existing user configs never break.
@@ -71,11 +73,11 @@ const VITNA_BASE_URL = env('BASE_URL') ?? 'https://vitna.costrinity.xyz';
 // self-provisioning (a restricted trial key) or from the local cache.
 let VITNA_OWNER_ID = env('OWNER_ID') ?? '';
 let VITNA_API_KEY = env('API_KEY') ?? '';
-// Claim URL for the current (trial) account, learned on provision or from the
-// cache. justProvisioned is true only on the single tool call that triggered
+// justProvisioned is true only on the single tool call that triggered
 // self-provisioning, so the very first tool response can carry a plain-language
-// connection notice the agent relays to the user.
-let VITNA_CLAIM_URL = '';
+// connection notice the agent relays to the user. The claim link is never in
+// it (0.5.2, src/claimLink.ts): this process keeps no copy of the link at all,
+// it writes it to stderr and forgets it.
 let justProvisioned = false;
 
 const SERVER_NAME = 'vitna-compliance';
@@ -86,19 +88,60 @@ const SERVER_NAME = 'vitna-compliance';
 // ─── Self-provisioning (restricted trial key on first use) ─────────
 //
 // When VITNA_OWNER_ID / VITNA_API_KEY are not set, the first tool call
-// provisions a RESTRICTED trial key via /api/setup, caches it locally, and
-// surfaces the claim URL so a human can claim the account (lifting the limits
-// and unlocking signed evidence). Explicit env credentials always win. Set
-// VITNA_EMAIL to own the trial account under a real address; otherwise a
-// throwaway is used and the human can bind a real email later by claiming.
+// provisions a RESTRICTED trial key via /api/setup and caches it locally.
+// The claim link that comes back (a person claims the account with it,
+// lifting the limits and unlocking signed evidence) goes to stderr only,
+// where a person reads it, never into anything the agent is sent, and it is
+// not cached (0.5.2, src/claimLink.ts). Explicit env credentials always win.
+// Set VITNA_EMAIL to own the trial account under a real address; otherwise a
+// throwaway is used.
 
 const CRED_FILE = join(homedir(), '.vitna', 'credentials.json');
 
-function loadCachedCreds(): { owner_id: string; api_key: string; claim_url?: string } | null {
+/** Writes `lines` to stderr, the MCP server log a person reads. Never to stdout. */
+function toLog(lines: string[]): void {
+  for (const l of lines) console.error(l);
+}
+
+/**
+ * 0.5.1 also kept the setup claim link in ~/.vitna/credentials.json, and an
+ * agent can read files. So the first time this process looks at that file, a
+ * claim_url found there is written to the log and removed from the file,
+ * which keeps everything else in it as it was. Once per process, and in
+ * effect once: the next process finds no link to move.
+ *
+ * It runs whichever credentials this process uses, the cached ones or
+ * VITNA_OWNER_ID / VITNA_API_KEY from the environment: a person who moved to
+ * env credentials after 0.5.1 still has the link in the file. It takes only
+ * claim_url out and writes the rest of the file back as it was; it does not
+ * use the key in the file, and never reads, writes or changes the env
+ * credentials.
+ */
+let legacyLinkChecked = false;
+function moveLegacyClaimLink(): void {
+  if (legacyLinkChecked) return;
+  legacyLinkChecked = true;
+  let c: unknown;
+  try {
+    c = JSON.parse(readFileSync(CRED_FILE, 'utf8'));
+  } catch {
+    return; // no file, or not one this version wrote
+  }
+  if (!c || typeof c !== 'object' || Array.isArray(c) || !('claim_url' in c)) return;
+  const { claim_url: link, ...rest } = c as Record<string, unknown>;
+  if (typeof link === 'string' && link) {
+    toLog(claimLinkForPerson(link, 'saved by an earlier version in ~/.vitna/credentials.json, now removed from that file'));
+  }
+  saveCachedCreds(rest);
+}
+
+/** The cached key, after any claim link 0.5.1 left beside it has been moved out (moveLegacyClaimLink). */
+function loadCachedCreds(): { owner_id: string; api_key: string } | null {
+  moveLegacyClaimLink();
   try {
     const c = JSON.parse(readFileSync(CRED_FILE, 'utf8'));
     if (c && typeof c.owner_id === 'string' && typeof c.api_key === 'string' && c.owner_id && c.api_key) {
-      return { owner_id: c.owner_id, api_key: c.api_key, claim_url: typeof c.claim_url === 'string' ? c.claim_url : undefined };
+      return { owner_id: c.owner_id, api_key: c.api_key };
     }
   } catch {
     /* no cache yet */
@@ -113,6 +156,47 @@ function saveCachedCreds(c: Record<string, unknown>): void {
   } catch (e) {
     console.error('[vitna-compliance-mcp] could not cache credentials:', e instanceof Error ? e.message : String(e));
   }
+}
+
+/**
+ * VITNA_OPEN_CLAIM=1: open the setup claim link in the default browser too.
+ * Off unless the person sets it in the MCP config, because this process is
+ * often started where nobody is at the screen (a container, CI, a remote
+ * machine), the first tool call that creates the trial is the agent's, and an
+ * agent that drives the browser could read the page it opened. Only a link
+ * openCommand accepts is opened, with no shell.
+ */
+function offerToOpen(url: string): void {
+  if (env('OPEN_CLAIM') !== '1') {
+    toLog(["[vitna-compliance-mcp] Set VITNA_OPEN_CLAIM=1 in this server's MCP config to have the claim link opened in your browser when a trial starts."]);
+    return;
+  }
+  const how = openCommand(process.platform, url);
+  if (!how) {
+    toLog(['[vitna-compliance-mcp] VITNA_OPEN_CLAIM=1, but this link is not one this server opens (https, a /claim path, plain characters only). Copy it from above.']);
+    return;
+  }
+  try {
+    const child = spawn(how.command, how.args, { stdio: 'ignore', detached: true, windowsHide: true, shell: false });
+    child.on('error', (e) => toLog([`[vitna-compliance-mcp] could not open the browser (${e.message}). Copy the link from above.`]));
+    child.unref();
+    toLog(['[vitna-compliance-mcp] Opened the claim link in your default browser.']);
+  } catch (e) {
+    toLog([`[vitna-compliance-mcp] could not open the browser (${e instanceof Error ? e.message : String(e)}). Copy the link from above.`]);
+  }
+}
+
+/**
+ * A claim link a VITNA response carried. Every response passes through here
+ * (callVitna), and before 0.5.2 the server sent one with each trial-limit
+ * refusal and with claim-status. Logged once per process, then dropped:
+ * scrubValue takes it out of anything the agent is sent.
+ */
+let serverLinkLogged = false;
+function logServerLinks(links: string[]): void {
+  if (!links.length || serverLinkLogged) return;
+  serverLinkLogged = true;
+  toLog(claimLinkForPerson(links[0]!, 'a newer link VITNA sent with a response'));
 }
 
 // The agent name a trial is created with. Fixed: 0.5.0 and earlier appended
@@ -142,15 +226,16 @@ async function provision(): Promise<void> {
     }
     VITNA_OWNER_ID = data.owner_id;
     VITNA_API_KEY = data.api_key;
-    if (typeof data.claim_url === 'string') VITNA_CLAIM_URL = data.claim_url;
     justProvisioned = true;
-    saveCachedCreds({ owner_id: VITNA_OWNER_ID, api_key: VITNA_API_KEY, base_url: VITNA_BASE_URL, claim_url: data.claim_url ?? null });
-    console.error(
-      `[vitna-compliance-mcp] provisioned a restricted trial key (owner ${VITNA_OWNER_ID}). ` +
-        (typeof data.claim_url === 'string'
-          ? `Claim it for full access + signed evidence: ${data.claim_url}`
-          : 'Claim it from your VITNA dashboard for full access.'),
-    );
+    // No claim_url in the cache: an agent can read this file (see loadCachedCreds).
+    saveCachedCreds({ owner_id: VITNA_OWNER_ID, api_key: VITNA_API_KEY, base_url: VITNA_BASE_URL });
+    console.error(`[vitna-compliance-mcp] provisioned a restricted trial key (owner ${VITNA_OWNER_ID}).`);
+    if (typeof data.claim_url === 'string' && data.claim_url) {
+      toLog(claimLinkForPerson(data.claim_url, 'the trial was just created'));
+      offerToOpen(data.claim_url);
+    } else {
+      console.error('[vitna-compliance-mcp] VITNA sent no claim link with this trial.');
+    }
   } catch (e) {
     console.error('[vitna-compliance-mcp] self-provision failed:', e instanceof Error ? e.message : String(e));
   }
@@ -161,12 +246,16 @@ let credsReady: Promise<void> | null = null;
 function ensureCredentials(): Promise<void> {
   if (!credsReady) {
     credsReady = (async () => {
-      if (VITNA_OWNER_ID && VITNA_API_KEY) return; // explicit env credentials win
+      if (VITNA_OWNER_ID && VITNA_API_KEY) {
+        // Explicit env credentials win. A claim link 0.5.1 left in the
+        // cache file is still moved to the log, and the file's key is not read.
+        moveLegacyClaimLink();
+        return;
+      }
       const cached = loadCachedCreds();
       if (cached) {
         VITNA_OWNER_ID = cached.owner_id;
         VITNA_API_KEY = cached.api_key;
-        if (cached.claim_url) VITNA_CLAIM_URL = cached.claim_url;
         return;
       }
       await provision();
@@ -198,11 +287,18 @@ async function callVitna(method: string, path: string, body?: unknown): Promise<
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   const text = await res.text();
+  let parsed: unknown;
   try {
-    return JSON.parse(text);
+    parsed = JSON.parse(text);
   } catch {
-    return { _raw: text, _status: res.status };
+    parsed = { _raw: text, _status: res.status };
   }
+  // Every VITNA answer passes here, so this is where a claim link in one is
+  // moved to the log and taken out (0.5.2): nothing after this point, in
+  // either mode, holds a link the agent could be sent.
+  const { value, links } = scrubValue(parsed);
+  logServerLinks(links);
+  return value;
 }
 
 /**
@@ -223,20 +319,22 @@ function isRefusal(result: unknown): { code: string; body: unknown } | null {
 
 /* ── Unclaimed-account reminder ──────────────────────────────────────
  *
- * The claim URL used to be printed once, to stderr, on first provision. Nobody
- * reads an agent's stderr, so the person who could actually claim the account
- * never learned it existed and the evidence quietly went unkept.
+ * Until the account is claimed, nothing is durably recorded. The reminder
+ * rides on governed tool results as its OWN text block, so the agent can tell
+ * its person. It is never merged into the JSON: the structured verdict an
+ * agent branches on must be byte-identical whether or not the account is
+ * claimed, or we would be changing a safety decision to advertise.
  *
- * So the reminder rides on governed tool results instead, as its OWN text
- * block. It is never merged into the JSON: the structured verdict an agent
- * branches on must be byte-identical whether or not the account is claimed,
- * or we would be changing a safety decision to advertise.
+ * It carries no claim link (0.5.2). 0.5.0 and 0.5.1 put the link here, and in
+ * the CONNECTED notice, so the agent would pass it on; the founder decided on
+ * 2026-10-05 that the link must never reach the agent. It says where a person
+ * finds the link instead: the MCP server log (src/claimLink.ts).
  *
  * CADENCE: the first 3 governed calls, then every 10th. The first few are
  * where an agent is still narrating setup to its human, so that is when it
  * gets relayed; the every-10th tail catches long-running sessions without the
  * line ever becoming most of the output. Once the account is claimed it stops
- * for good -- claimConfirmed latches and the server stops minting a URL.
+ * for good -- claimConfirmed latches.
  */
 let governedCalls = 0;
 let claimConfirmed = false;
@@ -250,7 +348,6 @@ async function stillUnclaimed(): Promise<boolean> {
     const r = await callVitna('GET', '/api/owners/claim-status');
     if (r && typeof r === 'object' && (r as Record<string, unknown>).claimed === true) {
       claimConfirmed = true;
-      VITNA_CLAIM_URL = '';
       return false;
     }
   } catch { /* keep reminding */ }
@@ -258,22 +355,18 @@ async function stillUnclaimed(): Promise<boolean> {
 }
 
 function reminderLine(): string {
-  return VITNA_CLAIM_URL
-    ? `Unclaimed trial - claim your dashboard at ${VITNA_CLAIM_URL} to keep this evidence. Nothing is being durably recorded until someone does.`
-    : 'Unclaimed trial - this evidence is not being durably recorded. Ask VITNA for the claim link with the vitna_claim tool.';
+  return `Unclaimed trial - this evidence is not being durably recorded until a person claims the account. ${CLAIM_LINK_IN_LOG}`;
 }
 
 /** One-time notice, in language the agent can relay to the user, emitted on the
- *  first tool response after self-provisioning. */
+ *  first tool response after self-provisioning. No claim link (see above). */
 function connectionNotice(): string {
   return [
     'CONNECTED TO VITNA, a safety and compliance oversight layer, in TRIAL mode.',
     'You can now check risky actions BEFORE you run them: call vitna_preflight for shell / file / DB / network actions, or the compliance checks for data handling. Each returns an allow / deny / hold decision. Treat deny or hold as a stop and get human approval before proceeding.',
-    'This trial key is rate-limited and does NOT keep signed audit evidence.',
-    VITNA_CLAIM_URL
-      ? `To keep your audit records and raise the limits, tell the user to claim this account: ${VITNA_CLAIM_URL}`
-      : 'To keep your audit records and raise the limits, ask the user to claim this account from the VITNA dashboard.',
-    'Relay this to the user in your own words, including the claim link.',
+    'This trial key is rate-limited and does NOT keep signed audit evidence. To keep the audit records and raise the limits, a person has to claim this account.',
+    CLAIM_LINK_IN_LOG,
+    'You are not given that link, so do not look for it. Relay this to the user in your own words: they will find the link in the log of this MCP server, in their MCP client.',
   ].join(' ');
 }
 
@@ -292,8 +385,16 @@ interface JsonRpcResp {
   error?: { code: number; message: string; data?: unknown };
 }
 
+/**
+ * The one writer to stdout in normal mode, so the one place every message to
+ * the client is checked: a claim link or token anywhere in it is moved to the
+ * log and taken out (0.5.2). callVitna has already done this for VITNA's
+ * answers; this catches anything else.
+ */
 function send(resp: JsonRpcResp): void {
-  process.stdout.write(JSON.stringify(resp) + '\n');
+  const { value, links } = scrubValue(resp);
+  logServerLinks(links);
+  process.stdout.write(JSON.stringify(value) + '\n');
 }
 
 function ok(id: number | string | null, result: unknown): void {
@@ -331,7 +432,7 @@ async function handle(req: JsonRpcReq): Promise<void> {
         }
         let result: unknown;
         if (tool.local) {
-          result = tool.local(params.arguments ?? {}, { claimUrl: VITNA_CLAIM_URL || null });
+          result = tool.local(params.arguments ?? {});
         } else if (tool.call) {
           const { method, path, body } = tool.call(params.arguments ?? {});
           result = await callVitna(method, path, body);
@@ -418,11 +519,10 @@ async function vitnaWithin(method: string, path: string, body?: unknown): Promis
       const r = await callVitna(method, path, body);
       const refused = isRefusal(r);
       if (refused) {
-        // A free trial limit keeps the server's message and claim link, so the
-        // refusal the agent gets can name the limit and pass the link on.
-        // Without a fresh link from the server, the one cached at setup.
+        // A free trial limit keeps the server's message, so the refusal the
+        // agent gets can name the limit. Not a claim link: callVitna already
+        // moved any link in the answer to the log (0.5.2).
         const limit = trialLimitFrom(refused.body);
-        if (limit && !limit.claim_url && VITNA_CLAIM_URL) limit.claim_url = VITNA_CLAIM_URL;
         return { ok: false as const, reason: refused.code, ...(limit ? { limit } : {}) };
       }
       return { ok: true as const, value: (r ?? {}) as Record<string, unknown> };
@@ -577,6 +677,8 @@ if (process.argv[2] === 'guard') {
     console.error('usage: vitna-compliance-mcp guard -- <command that starts an MCP server> [args...]');
     process.exit(2);
   }
+  // At start, as in normal mode (see moveLegacyClaimLink).
+  moveLegacyClaimLink();
   const policyFile = env('GUARD_POLICY');
   runGuard(wrapped[0]!, wrapped.slice(1), policyFile
     ? engagementGuard(policyFile, wrapped)
@@ -592,10 +694,14 @@ if (process.argv[2] === 'guard') {
 // ─── Main loop ─────────────────────────────────────────────────────
 
 function startServer(): void {
+// At start, so a claim link 0.5.1 left in the cache file is in the log before
+// the first tool call, with env credentials as well as cached ones.
+moveLegacyClaimLink();
 if (!VITNA_OWNER_ID && !loadCachedCreds()) {
   console.error(
     '[vitna-compliance-mcp] No VITNA_OWNER_ID / VITNA_API_KEY set. ' +
-      'The first tool call will self-provision a restricted trial key and print a claim URL. ' +
+      'The first tool call will self-provision a restricted trial key and print its claim link here, in this log, for a person to open. ' +
+      'The agent is never sent the link. ' +
       'Set VITNA_EMAIL to own it under a real address, or set VITNA_OWNER_ID + VITNA_API_KEY to use an existing key.',
   );
 }
