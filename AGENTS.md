@@ -56,5 +56,5 @@ only when VITNA returns `allowed`. It fails closed. With a policy file it can ho
 a call for a person (who is never the agent) and plant bait. It covers only the
 servers wrapped by it.
 
-Built by COSTRINITY (Indigenous-owned software studio in Regina, Saskatchewan,
+Built by COSTRINITY INC. (Indigenous-owned software company in Regina, Saskatchewan,
 Treaty 4 territory, Canada).

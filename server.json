@@ -1,9 +1,9 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "xyz.costrinity/vitna-compliance-preflight",
-  "title": "VITNA — Agent Compliance Preflight",
-  "description": "Pre-action compliance for AI agents: allow, block or hold. 24 statutes, 13 jurisdictions.",
-  "version": "0.5.2",
+  "title": "VITNA – Containment for rogue AI agents",
+  "description": "Wraps stdio MCP servers. Risky calls wait for a person; no answer, no run. Signed records.",
+  "version": "0.5.3",
   "websiteUrl": "https://vitna.costrinity.xyz",
   "repository": {
     "url": "https://github.com/COSTRINITY/vitna-compliance-mcp",
@@ -28,7 +28,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@costrinity/vitna-compliance-mcp",
-      "version": "0.5.2",
+      "version": "0.5.3",
       "transport": {
         "type": "stdio"
       },
@@ -45,7 +45,7 @@
         },
         {
           "name": "VITNA_EMAIL",
-          "description": "Email to own the self-provisioned trial account. Optional: a throwaway is used if unset (claim later to bind a real email). The old VIGIL_EMAIL name is still accepted.",
+          "description": "Email to own the self-provisioned trial account. Optional: a throwaway is used if unset. It does not claim the account: claim it with GitHub or a passkey. The old VIGIL_EMAIL name is still accepted.",
           "isRequired": false
         },
         {

@@ -366,6 +366,23 @@ export function openCommand(platform: string, url: string): { command: string; a
   return { command: 'xdg-open', args: [url] };
 }
 
+/**
+ * What the guard writes to its log when a policy session on a trial key ends
+ * (0.5.3). Trial keys get no signed bundle: closing a session needs a claimed
+ * account. Until 0.5.3 the guard logged only "could not close session".
+ * The claim link is the one this run received when it created the trial,
+ * kept in memory only; without one, the person is pointed to the link the
+ * log shows from when the trial started. Never sent to the agent.
+ */
+export function trialSessionEnd(sessionId: string, link: string | null): string[] {
+  return [
+    `[vitna-guard] Session ${sessionId} ended. Trial keys don't get a signed bundle: signed evidence is kept for claimed accounts only, so no bundle was saved.`,
+    ...(link
+      ? claimLinkForPerson(link, 'the session ended on a trial key')
+      : [`[vitna-guard] ${CLAIM_LINK_IN_LOG} If it has expired, open it anyway: within 72 hours of the trial starting, the page offers a fresh link, once.`]),
+  ];
+}
+
 /** The lines written to stderr for a person, around one claim link. */
 export function claimLinkForPerson(url: string, why: string): string[] {
   return [

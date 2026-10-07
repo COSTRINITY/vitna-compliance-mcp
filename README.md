@@ -1,18 +1,73 @@
-# @costrinity/vitna-compliance-mcp
+# VITNA
 
-> **Renamed from VIGIL.** This package was formerly published as
-> `@costrinity/vigil-compliance-mcp` and this repo was formerly
-> `COSTRINITY/vigil-compliance-mcp`. The old package is still on npm at
-> 0.2.4, deprecated with the message "Renamed: use
-> @costrinity/vitna-compliance-mcp". It gets no updates and has no guard
-> mode, so anything still pointing at it installs that old version. Directory
-> listings that show the VIGIL name are stale snapshots of this repo.
->
-> Current package: **`@costrinity/vitna-compliance-mcp`**
-> Registry entry: **`xyz.costrinity/vitna-compliance-preflight`**
-> Site: **https://vitna.costrinity.xyz**
+**A containment layer for AI agents that go rogue.**
 
-**Pre-action compliance for AI agents: allow, block or hold — before your agent acts.**
+Agents go rogue through their tools. VITNA sits on the tools you put behind it.
+Calls to the tools you mark as risky wait for a person. No answer, no run.
+No API key can decide a hold, including the agent's own. On a claimed account,
+every guarded session ends in a signed record you can check offline.
+
+## Try it in 60 seconds
+
+```
+npx -y @costrinity/vitna-compliance-mcp guard -- <your stdio MCP server command>
+```
+
+To see a hold, give the guard a policy file that lists the tools to hold. The
+reference filesystem server has no delete tool: it destroys a file by
+overwriting or moving it, so this `policy.json` holds those calls and allows
+the rest:
+
+```json
+{ "allowed_actions": ["*"], "hold_actions": ["write_file", "edit_file", "move_file"] }
+```
+
+```
+VITNA_GUARD_POLICY=/path/to/policy.json npx -y @costrinity/vitna-compliance-mcp guard -- npx -y @modelcontextprotocol/server-filesystem /path/to/test-folder
+```
+
+In an MCP client config, put `VITNA_GUARD_POLICY` under `env` (see
+[Guard mode](#guard-mode-vitna-in-the-execution-path-050)).
+
+Every `tools/call` is checked by VITNA before it reaches the server. Anything not
+allowed is refused with a tool error that says why. With no credentials you get a
+trial key: a risky call is held, and with nobody able to approve it yet, it's
+blocked when the window ends. To approve or deny holds and keep signed records,
+claim the account with GitHub or a passkey. The claim link is printed in your MCP
+server log and never sent to the agent; `VITNA_OPEN_CLAIM=1` opens it in your
+browser.
+
+Try it on a test agent first.
+
+## Scope
+
+VITNA sees only the servers it wraps. A built-in shell or an unwrapped server is
+outside it, so turn those off if you want every action to go through the guard.
+The session record lists what you declared as unwrapped. The remote endpoint offers
+the same checks as tools an agent calls itself; that's cooperative, not containment.
+Detection is heuristic pattern matching, not a sandbox.
+
+[What it doesn't do](#honest-limits) · [Guard mode](#guard-mode-vitna-in-the-execution-path-050) · [Verify a record](#verify-vitna-evidence-yourself)
+
+## Renamed from VIGIL
+
+This package was formerly published as
+`@costrinity/vigil-compliance-mcp` and this repo was formerly
+`COSTRINITY/vigil-compliance-mcp`. The old package is still on npm at
+0.2.4, deprecated with the message "Renamed: use
+@costrinity/vitna-compliance-mcp". It gets no updates and has no guard
+mode, so anything still pointing at it installs that old version. Directory
+listings that show the VIGIL name are stale snapshots of this repo.
+
+Current package: **`@costrinity/vitna-compliance-mcp`**
+Registry entry: **`xyz.costrinity/vitna-compliance-preflight`**
+Site: **https://vitna.costrinity.xyz**
+
+## Also included
+
+The same package carries VITNA's compliance checks: 23 MCP tools across 24
+named statutes in 13 jurisdictions, for an agent to call itself before it acts.
+Decision support, not legal advice; scorecards are not certifications.
 
 Most compliance servers answer questions *about* regulations. This one answers one question *about the action your agent is holding right now*: may it run? Your agent calls a check, gets `allowed` / `blocked` / `flagged` back synchronously, and decides. VITNA evaluates and records; your system enforces.
 
@@ -290,7 +345,7 @@ start; otherwise a throwaway is used.
 
 - `VITNA_OWNER_ID`: your operator UUID. Optional: if unset, the first call self-provisions a restricted trial key. Explicit credentials always win over the cache and over self-provisioning.
 - `VITNA_API_KEY`: optional. Authenticates the tool calls. Self-provisioned if unset. New keys are formatted `vitna_...`; legacy `vigil_...` keys remain valid.
-- `VITNA_EMAIL`: optional. Email to own the self-provisioned trial account. A throwaway is used if unset (claim later to bind a real email).
+- `VITNA_EMAIL`: optional. Email to own the self-provisioned trial account. A throwaway is used if unset. It does not claim the account: claim it with GitHub or a passkey.
 - `VITNA_BASE_URL`: defaults to `https://vitna.costrinity.xyz`. Point at your own VITNA instance if self-hosted.
 - `VITNA_AGENT_NAME`: optional. The agent name a self-provisioned trial account is created with. Defaults to `vitna-compliance-mcp`. Versions before 0.5.1 added your machine's hostname to that name; 0.5.1 and later do not.
 - `VITNA_OPEN_CLAIM`: optional, 0.5.2 and later. Set to `1` to have the claim link opened in your default browser when a trial starts, as well as printed in the MCP server log. Off by default, because the server often runs where nobody is at the screen, the call that starts the trial is your agent's, and an agent that drives your browser could read the page. Only an https `/claim` link is opened, without a shell.
@@ -472,7 +527,11 @@ against it:
 - **Evidence.** When the wrapped server exits, the session closes and its
   Ed25519-signed bundle is saved to `~/.vitna/bundles/`. Each hold is one
   `hold-v1` lifecycle record (proposed, held, routed, decided, outcome) inside
-  it, verifiable offline with `scripts/verify-evidence.mjs`.
+  it, verifiable offline with `scripts/verify-evidence.mjs`. On a trial key no
+  bundle is saved: signed evidence is for claimed accounts. From 0.5.3 the log
+  says so when the session ends ("Trial keys don't get a signed bundle"), with
+  the claim link this run received, or a pointer to the one the log showed when
+  the trial started. Earlier versions logged only "could not close session".
 - **Only as wide as what you wrap.** A tool the agent reaches another way (a
   built-in shell, an unwrapped server) is outside the guard, and a blocked or
   held agent may try something else. Wrap every server that can act.
@@ -494,4 +553,4 @@ What the numbers above do **not** mean:
 
 ## License
 
-MIT © COSTRINITY (Indigenous-owned software studio in Regina, Saskatchewan, Treaty 4 territory, Canada)
+MIT © COSTRINITY INC. (Indigenous-owned software company in Regina, Saskatchewan, Treaty 4 territory, Canada)

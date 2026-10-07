@@ -48,7 +48,7 @@ export const TOOL_ALIASES: Record<string, string> = {
  * read npm_package_version. tests/claims-gate.test.ts pins it to
  * package.json so neither can happen again.
  */
-export const SERVER_VERSION = '0.5.2';
+export const SERVER_VERSION = '0.5.3';
 
 export interface ToolDef {
   name: string;

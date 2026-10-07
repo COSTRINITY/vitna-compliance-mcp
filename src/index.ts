@@ -61,7 +61,14 @@ import { randomBytes } from 'node:crypto';
 // the two transports cannot drift apart.
 import { listedTools, resolveTool, SERVER_VERSION } from './tools.js';
 import { runGuard, honeytoolsFor, makeHoneytokens, engagementDecision, coverageLabel, trialLimitFrom, type GuardDecision, type GuardDeps, type VitnaResult } from './guard.js';
-import { scrubValue, claimLinkForPerson, openCommand, CLAIM_LINK_IN_LOG } from './claimLink.js';
+import { scrubValue, claimLinkForPerson, openCommand, trialSessionEnd, CLAIM_LINK_IN_LOG } from './claimLink.js';
+
+/**
+ * The claim link this run received, kept in memory only (never written to a
+ * file an agent can read), so the guard can show it again in its log when a
+ * session on the trial key ends (0.5.3).
+ */
+let claimLinkThisRun: string | null = null;
 
 // Env vars: VITNA_* is canonical. The old VIGIL_* names are accepted forever
 // as aliases, so existing user configs never break.
@@ -76,8 +83,10 @@ let VITNA_API_KEY = env('API_KEY') ?? '';
 // justProvisioned is true only on the single tool call that triggered
 // self-provisioning, so the very first tool response can carry a plain-language
 // connection notice the agent relays to the user. The claim link is never in
-// it (0.5.2, src/claimLink.ts): this process keeps no copy of the link at all,
-// it writes it to stderr and forgets it.
+// it (0.5.2, src/claimLink.ts): this process writes the link to stderr and
+// keeps it only in memory (claimLinkThisRun), to show it in the log again when
+// a guard session on the trial key ends (0.5.3). No file and no tool result
+// carries it.
 let justProvisioned = false;
 
 const SERVER_NAME = 'vitna-compliance';
@@ -196,6 +205,7 @@ let serverLinkLogged = false;
 function logServerLinks(links: string[]): void {
   if (!links.length || serverLinkLogged) return;
   serverLinkLogged = true;
+  claimLinkThisRun = links[0]!;
   toLog(claimLinkForPerson(links[0]!, 'a newer link VITNA sent with a response'));
 }
 
@@ -231,6 +241,7 @@ async function provision(): Promise<void> {
     saveCachedCreds({ owner_id: VITNA_OWNER_ID, api_key: VITNA_API_KEY, base_url: VITNA_BASE_URL });
     console.error(`[vitna-compliance-mcp] provisioned a restricted trial key (owner ${VITNA_OWNER_ID}).`);
     if (typeof data.claim_url === 'string' && data.claim_url) {
+      claimLinkThisRun = data.claim_url;
       toLog(claimLinkForPerson(data.claim_url, 'the trial was just created'));
       offerToOpen(data.claim_url);
     } else {
@@ -655,6 +666,10 @@ function engagementGuard(policyFile: string, wrapped: string[]) {
       const sid = await session;
       if (!sid) return;
       const r = await vitnaWithin('POST', '/api/engagement/close', { session_id: sid });
+      // A trial key cannot close a session: signed bundles need a claimed
+      // account (403 restricted_key_forbidden). Say so plainly, with the
+      // claim link, in the log only (0.5.3).
+      if (!r.ok && r.reason === 'restricted_key_forbidden') { toLog(trialSessionEnd(sid, claimLinkThisRun)); return; }
       if (!r.ok) { console.error(`[vitna-guard] could not close session ${sid} (${r.reason})`); return; }
       try {
         const dir = join(homedir(), '.vitna', 'bundles');

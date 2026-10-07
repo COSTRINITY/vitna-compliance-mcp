@@ -1,22 +1,27 @@
 # Smithery registry manifest for @costrinity/vitna-compliance-mcp
 # Docs: https://smithery.ai/docs/build/project-config
+#
+# Listing description (the npm description):
+# A containment layer for AI agents that go rogue. Wraps stdio MCP servers:
+# risky tool calls wait for a person, no API key can decide a hold (not even
+# the agent's), and claimed accounts get signed, offline-verifiable records.
+# Covers the servers you wrap.
 startCommand:
   type: stdio
   configSchema:
     type: object
     # No required fields: with no credentials, the first tool call self-provisions
-    # a restricted trial key and prints a claim URL. Zero setup to connect.
+    # a restricted trial key. Claim the account with GitHub or a passkey. The claim
+    # link is printed in your MCP server log, never sent to the agent;
+    # VITNA_OPEN_CLAIM=1 opens it in your browser.
     properties:
-      vigilOwnerId:
+      vitnaOwnerId:
         type: string
-        description: "Optional. Your VITNA operator UUID. If unset, a trial key is self-provisioned on first use."
-      vigilApiKey:
+        description: "Optional. Your VITNA owner ID. If unset, a trial key is self-provisioned on first use."
+      vitnaApiKey:
         type: string
-        description: "Optional. Your VITNA API key (vigil_...). Self-provisioned if unset."
-      vigilEmail:
-        type: string
-        description: "Optional. Email to own the self-provisioned trial account (claim later to bind a real email)."
-      vigilBaseUrl:
+        description: "Optional. Your VITNA API key (vitna_..., or a legacy vigil_... key). Self-provisioned if unset."
+      vitnaBaseUrl:
         type: string
         default: "https://vitna.costrinity.xyz"
         description: "VITNA base URL. Override only for self-hosted."
@@ -25,9 +30,8 @@ startCommand:
       command: 'npx',
       args: ['@costrinity/vitna-compliance-mcp'],
       env: {
-        VIGIL_OWNER_ID: config.vigilOwnerId || '',
-        VIGIL_API_KEY: config.vigilApiKey || '',
-        VIGIL_EMAIL: config.vigilEmail || '',
-        VIGIL_BASE_URL: config.vigilBaseUrl || 'https://vitna.costrinity.xyz'
+        VITNA_OWNER_ID: config.vitnaOwnerId || '',
+        VITNA_API_KEY: config.vitnaApiKey || '',
+        VITNA_BASE_URL: config.vitnaBaseUrl || 'https://vitna.costrinity.xyz'
       }
     })

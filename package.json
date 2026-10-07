@@ -1,8 +1,8 @@
 {
   "name": "@costrinity/vitna-compliance-mcp",
   "mcpName": "xyz.costrinity/vitna-compliance-preflight",
-  "version": "0.5.2",
-  "description": "Pre-action compliance for AI agents: allow, block or hold before your agent acts. 24 named statutes across 13 jurisdictions including the EU AI Act, GDPR and DPDP. 23 MCP tools. Every decision returns an Ed25519-signed receipt you can verify offline.",
+  "version": "0.5.3",
+  "description": "A containment layer for AI agents that go rogue. Wraps stdio MCP servers: risky tool calls wait for a person, no API key can decide a hold (not even the agent's), and claimed accounts get signed, offline-verifiable records. Covers the servers you wrap.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
@@ -33,7 +33,10 @@
   "engines": {
     "node": ">=18"
   },
-  "author": "COSTRINITY (Indigenous-owned software studio in Regina, Saskatchewan, Treaty 4 territory, Canada)",
+  "author": {
+    "name": "COSTRINITY INC.",
+    "url": "https://www.costrinity.xyz/"
+  },
   "license": "MIT",
   "homepage": "https://vitna.costrinity.xyz/why-vitna",
   "repository": {
@@ -53,6 +56,7 @@
     "access": "public"
   },
   "devDependencies": {
+    "@types/node": "^20",
     "typescript": "^5.9.3"
   }
 }
