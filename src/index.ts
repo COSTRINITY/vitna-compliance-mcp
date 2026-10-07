@@ -645,14 +645,33 @@ function engagementGuard(policyFile: string, wrapped: string[]) {
       // fail-open or not (see engagementDecision in guard.ts).
       return engagementDecision(r);
     },
-    async waitForHold(hold, progress) {
+    async waitForHold(hold, progress, opts = {}) {
       const deadline = Date.parse(hold.deadline);
+      const untilMs = opts.untilMs ?? Infinity;
+      const { signal } = opts;
       let lastNote = Date.now();
+      // A pause that ends early when the client cancels.
+      const pause = (ms: number) => new Promise<void>((resolve) => {
+        if (signal?.aborted || ms <= 0) return resolve();
+        const t = setTimeout(resolve, ms);
+        signal?.addEventListener('abort', () => { clearTimeout(t); resolve(); }, { once: true });
+      });
       for (;;) {
-        await sleep(2000);
-        const r = await vitnaWithin('GET', `/api/engagement/hold?hold_id=${encodeURIComponent(hold.hold_id)}`);
+        // Never past the point the client may have given up (0.5.4): the
+        // pause and the read are both cut short there.
+        await pause(Math.min(2000, untilMs - Date.now()));
+        if (signal?.aborted) return 'cancelled';
+        if (Date.now() >= untilMs) return 'timeout';
+        const left = untilMs - Date.now();
+        let raceTimer: ReturnType<typeof setTimeout> | undefined;
+        const r = await Promise.race([
+          vitnaWithin('GET', `/api/engagement/hold?hold_id=${encodeURIComponent(hold.hold_id)}`),
+          new Promise<{ ok: false; reason: string }>((resolve) => { raceTimer = setTimeout(() => resolve({ ok: false, reason: 'timeout' }), Math.min(left, 2 ** 31 - 1)); }),
+        ]).finally(() => clearTimeout(raceTimer));
+        if (signal?.aborted) return 'cancelled';
         const st = r.ok ? r.value.status : undefined;
         if (st === 'approved' || st === 'denied' || st === 'expired') return st;
+        if (Date.now() >= untilMs) return 'timeout';
         // Past the deadline VITNA records `expired` on read; if it still cannot
         // be read 30s later, the outcome is unknown and the call is refused.
         if (Date.now() > deadline + 30_000) return 'error';
@@ -661,6 +680,11 @@ function engagementGuard(policyFile: string, wrapped: string[]) {
           lastNote = Date.now();
         }
       }
+    },
+    async holdStatus(holdId) {
+      const r = await vitnaWithin('GET', `/api/engagement/hold?hold_id=${encodeURIComponent(holdId)}`);
+      if (!r.ok || typeof r.value.status !== 'string') return null;
+      return { status: r.value.status, decided_at: typeof r.value.decided_at === 'string' ? r.value.decided_at : null };
     },
     async onExit() {
       const sid = await session;

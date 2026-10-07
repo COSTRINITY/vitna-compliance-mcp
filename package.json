@@ -1,7 +1,7 @@
 {
   "name": "@costrinity/vitna-compliance-mcp",
   "mcpName": "xyz.costrinity/vitna-compliance-preflight",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "description": "A containment layer for AI agents that go rogue. Wraps stdio MCP servers: risky tool calls wait for a person, no API key can decide a hold (not even the agent's), and claimed accounts get signed, offline-verifiable records. Covers the servers you wrap.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

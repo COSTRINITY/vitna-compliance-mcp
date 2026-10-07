@@ -70,6 +70,7 @@ import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { randomBytes } from 'node:crypto';
 import { scrubText, scrubForwardedLine, CLAIM_LINK_IN_LOG } from './claimLink.js';
+import { callHash, clientProfile, heldNotRun, maxHoldMs, waitBudgetMs, GUARD_MAX_HOLD_MS, RETRY_AFTER_APPROVAL_MS, type ClientProfile } from './holdPolicy.js';
 
 export type GuardDecision = {
   /**
@@ -138,7 +139,33 @@ export function trialLimitRefusal(name: string, limit: TrialLimit): string {
 }
 
 export type BaitEvent = 'honeytool' | 'honeytoken';
-export type HoldOutcome = 'approved' | 'denied' | 'expired' | 'error';
+/**
+ * How a wait on a hold ended. `timeout`: the guard stopped waiting because the
+ * client may have given up (0.5.4, src/holdPolicy.ts); `cancelled`: the client
+ * cancelled the call or closed its side. Neither forwards the call.
+ */
+export type HoldOutcome = 'approved' | 'denied' | 'expired' | 'error' | 'timeout' | 'cancelled';
+
+/** A call held in this session, kept so a retry of the same call uses VITNA's answer on that hold. */
+export interface HeldCall {
+  hold_id: string;
+  deadline: string;
+  /** True once an approval of this hold forwarded the call: an approval runs one call. */
+  used: boolean;
+}
+
+/** What gate needs to know about the session it runs in (0.5.4). */
+export interface GateContext {
+  /** The client, from its initialize request. Unknown until then (UNKNOWN_CLIENT_TIMEOUT_MS). */
+  client?: ClientProfile;
+  /** Calls held earlier in this session, by callHash. */
+  held?: Map<string, HeldCall>;
+  /** Aborted when the client cancels this call or closes its side. */
+  signal?: AbortSignal;
+  /** The guard's own cap on a hold waited in place. */
+  maxHold?: number;
+  now?: () => number;
+}
 
 export interface HoneyTool {
   name: string;
@@ -149,8 +176,13 @@ export interface HoneyTool {
 export interface GuardDeps {
   /** Ask VITNA about one tool call. Must resolve, never reject. */
   preflight(action: string, payload: Record<string, unknown>, call: { name: string; meta?: unknown; bait?: BaitEvent }): Promise<GuardDecision>;
-  /** Wait for a person to decide a hold (engagement mode). Must resolve. */
-  waitForHold?(hold: { hold_id: string; deadline: string }, progress: (message: string) => void): Promise<HoldOutcome>;
+  /**
+   * Wait for a person to decide a hold (engagement mode). Must resolve. Stops
+   * with `timeout` at untilMs and with `cancelled` when signal is aborted.
+   */
+  waitForHold?(hold: { hold_id: string; deadline: string }, progress: (message: string) => void, opts?: { untilMs?: number; signal?: AbortSignal }): Promise<HoldOutcome>;
+  /** Read a hold's state once (engagement mode): status pending, approved, denied or expired. Null when it cannot be read. */
+  holdStatus?(holdId: string): Promise<{ status: string; decided_at?: string | null } | null>;
   honeytools?: HoneyTool[];
   honeytokens?: HoneyTokens | null;
   failOpen: boolean;
@@ -334,7 +366,8 @@ export async function gate(
   line: string,
   deps: GuardDeps,
   notify: (line: string) => void = () => {},
-): Promise<{ forward: string } | { reply: string }> {
+  ctx: GateContext = {},
+): Promise<{ forward: string } | { reply: string } | { drop: true }> {
   let msg: { id?: unknown; method?: unknown; params?: { name?: unknown; arguments?: unknown; _meta?: { progressToken?: unknown } } };
   try {
     msg = JSON.parse(line);
@@ -348,6 +381,86 @@ export async function gate(
     ? (msg.params.arguments as Record<string, unknown>) : {};
   const text = actionText(name, args);
 
+  // How long a hold may be waited on in place: until the client may have
+  // given up, counted from when the call arrived (0.5.4, src/holdPolicy.ts).
+  const now = ctx.now ?? Date.now;
+  const startedAt = now();
+  const budget = waitBudgetMs(ctx.client ?? clientProfile(undefined, {}), ctx.maxHold ?? GUARD_MAX_HOLD_MS);
+  const hash = callHash(name, args);
+  const progressToken = msg.params?._meta?.progressToken;
+  const msgId = msg.id;
+  // A call is never forwarded once the client cancelled it or closed its
+  // side. A cancelled request is owed no answer (MCP); one written before the
+  // client closed its side still is (0.5.2), so it gets a refusal.
+  const whenStopped = (): { reply: string } | { drop: true } => ctx.signal?.reason === 'closed'
+    ? { reply: refusal(msgId, `VITNA guard did not run "${name}": the client closed its side before the call could run, so it was not sent to the server.`) }
+    : { drop: true };
+  // For a call decided at once (allowed, or a retry of an approved call),
+  // only the client's cancel stops it: a request written just before the
+  // client closed its side is handled as before (0.5.2). Closing its side
+  // stops a call waiting on a person (waitOn).
+  const cancelled = () => ctx.signal?.aborted === true && ctx.signal.reason !== 'closed';
+
+  // Wait on a hold, for this call or an identical one held earlier in this
+  // session. Only VITNA's answer on the hold forwards the call, and only while
+  // the client may still be waiting; an approval runs the call once.
+  const waitOn = async (entry: HeldCall): Promise<{ forward: string } | { reply: string } | { drop: true }> => {
+    const until = entry.deadline;
+    let step = 0;
+    const progress = (message: string) => {
+      if (progressToken === undefined) return;
+      notify(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/progress', params: { progressToken, progress: ++step, message: scrubText(message).value } }));
+    };
+    progress(`Held for human review until ${until}. A person decides; if nobody does, it is blocked.`);
+    // A deadline VITNA sent that cannot be read does not lift the budget.
+    const deadlineMs = Date.parse(until);
+    const untilMs = Math.min(startedAt + budget, Number.isFinite(deadlineMs) ? deadlineMs + 30_000 : startedAt + budget);
+    const outcome = await deps.waitForHold!(entry, progress, { untilMs, signal: ctx.signal });
+    if (outcome === 'approved') {
+      ctx.held?.delete(hash);
+      if (entry.used) {
+        return { reply: refusal(msgId, `VITNA guard held "${name}" for human review until ${until}. A person approved it once, and that approval already ran the same call, so this one was not sent to the server.`) };
+      }
+      entry.used = true;
+      return ctx.signal?.aborted ? whenStopped() : { forward: line };
+    }
+    if (outcome === 'cancelled') {
+      deps.log(`"${name}": the client cancelled the call or closed its side while it was held; it is not forwarded, whatever is decided`);
+      return whenStopped();
+    }
+    if (outcome === 'timeout') {
+      deps.log(`"${name}": still held when this client may stop waiting; answered as held, not run (hold ${entry.hold_id} stays open; an approval runs one retry of the same call)`);
+      return { reply: refusal(msgId, heldNotRun(name, until)) };
+    }
+    ctx.held?.delete(hash);
+    const why = outcome === 'denied' ? 'A person denied it.'
+      : outcome === 'expired' ? 'Nobody decided before the deadline, so it was blocked.'
+        : 'The hold could not be read, so it was blocked.';
+    return { reply: refusal(msgId, `VITNA guard held "${name}" for human review until ${until}. ${why} The call was not sent to the server.`) };
+  };
+
+  // The same call held earlier in this session: VITNA's answer on that hold
+  // decides it, so a retry (or a client's automatic repeat) opens no second
+  // hold, and an approval made after the client stopped waiting runs the call
+  // once when the agent retries it.
+  const prior = ctx.held?.get(hash);
+  if (prior && deps.holdStatus) {
+    const st = await deps.holdStatus(prior.hold_id);
+    if (st?.status === 'pending' && deps.waitForHold) return waitOn(prior);
+    if (st?.status === 'approved') {
+      ctx.held!.delete(hash);
+      const at = st.decided_at ? Date.parse(st.decided_at) : NaN;
+      if (!prior.used && Number.isFinite(at) && now() - at <= RETRY_AFTER_APPROVAL_MS) {
+        prior.used = true;
+        deps.log(`"${name}": a person approved hold ${prior.hold_id}; this retry of the same call is forwarded, once`);
+        return cancelled() ? { drop: true } : { forward: line };
+      }
+    } else if (st?.status === 'denied' || st?.status === 'expired') {
+      ctx.held!.delete(hash);
+    }
+    // Used, stale, closed or unreadable: the call is checked afresh below.
+  }
+
   // Bait: recorded and alerted by VITNA, refused here whatever VITNA says, and
   // never forwarded (the wrapped server does not have these tools anyway).
   const bait: BaitEvent | undefined = deps.honeytools?.some((t) => t.name === name) ? 'honeytool'
@@ -358,7 +471,8 @@ export async function gate(
     return { reply: refusal(msg.id, blocked(name)) };
   }
 
-  if (d.decision === 'allowed') return { forward: line };
+  // A call the client cancelled while it was checked is not forwarded.
+  if (d.decision === 'allowed') return cancelled() ? { drop: true } : { forward: line };
 
   // Before the error branch on purpose: fail-open is for an unreachable
   // VITNA, and a trial limit or a closed session is VITNA answering.
@@ -375,24 +489,14 @@ export async function gate(
   }
 
   if (d.decision === 'held' && d.hold && deps.waitForHold) {
-    const until = d.hold.deadline;
-    const token = msg.params?._meta?.progressToken;
-    let step = 0;
-    const progress = (message: string) => {
-      if (token === undefined) return;
-      notify(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/progress', params: { progressToken: token, progress: ++step, message: scrubText(message).value } }));
-    };
-    progress(`Held for human review until ${until}. A person decides; if nobody does, it is blocked.`);
-    const outcome = await deps.waitForHold(d.hold, progress);
-    if (outcome === 'approved') return { forward: line };
-    const why = outcome === 'denied' ? 'A person denied it.'
-      : outcome === 'expired' ? 'Nobody decided before the deadline, so it was blocked.'
-        : 'The hold could not be read, so it was blocked.';
-    return { reply: refusal(msg.id, `VITNA guard held "${name}" for human review until ${until}. ${why} The call was not sent to the server.`) };
+    const entry: HeldCall = { hold_id: d.hold.hold_id, deadline: d.hold.deadline, used: false };
+    ctx.held?.set(hash, entry);
+    return waitOn(entry);
   }
 
   if (d.decision === 'error' || d.decision === 'held') {
     if (d.decision === 'error' && deps.failOpen) {
+      if (cancelled()) return { drop: true };
       deps.log(`FAIL-OPEN: forwarded ${name} without a VITNA decision (${d.reason ?? 'no reason'})`);
       return { forward: line };
     }
@@ -600,9 +704,16 @@ export function runGuard(command: string, commandArgs: string[], deps: GuardDeps
   // Client -> server. Each line is handled on its own: a call waiting minutes
   // on a hold must not stall every other call behind it. Lines that are not
   // tools/call resolve without awaiting anything, so they keep their order. A
-  // cancellation that overtakes a call still being checked is harmless: the
-  // server ignores an id it has not seen, and the client drops the late reply.
+  // cancellation stops the call it names while it is checked or held (0.5.4):
+  // it is not forwarded, and no answer is sent.
   const pending = new Set<Promise<void>>();
+  // The session's state for holds (0.5.4, src/holdPolicy.ts): which client
+  // this is, the calls held so far, and a way to stop waiting on each call
+  // when the client cancels it or closes its side.
+  const session: GateContext = { held: new Map(), maxHold: maxHoldMs() };
+  const waiting = new Map<string, AbortController>();
+  // Every call still in flight, so closing reaches each one even if a client reused a request id.
+  const inFlight = new Set<AbortController>();
   createInterface({ input: process.stdin }).on('line', (line) => {
     if (!line.trim()) return;
     const req = requestOf(line);
@@ -611,21 +722,38 @@ export function runGuard(command: string, commandArgs: string[], deps: GuardDeps
       if (req) { refuse(req.id); leave(failCode); }
       return;
     }
+    let parsed: { method?: unknown; params?: { clientInfo?: { name?: unknown; version?: unknown }; requestId?: unknown } } | undefined;
+    try { parsed = JSON.parse(line); } catch { /* not JSON: passed on as it is */ }
+    if (parsed?.method === 'initialize') {
+      session.client = clientProfile(parsed.params?.clientInfo);
+      const v = parsed.params?.clientInfo?.version;
+      const clean = (t: string) => t.replace(/[ -]/g, ' ');
+      deps.log(`client "${clean(session.client.name ?? 'unnamed')}"${typeof v === 'string' ? ` ${clean(v.slice(0, 40))}` : ''} (${session.client.label}; ${session.client.source}): a held call is waited on for up to ${Math.round(waitBudgetMs(session.client, session.maxHold!) / 1000)} s, then answered as held, not run`);
+    }
+    if (parsed?.method === 'notifications/cancelled' && parsed.params?.requestId !== undefined) {
+      waiting.get(JSON.stringify(parsed.params.requestId))?.abort('cancelled');
+    }
     const ticket = req ? { id: req.id } : null;
     if (ticket) checking.add(ticket);
-    const p = gate(line, deps, out).then((res) => {
+    const stop = req ? new AbortController() : undefined;
+    if (req && stop) { waiting.set(req.id, stop); inFlight.add(stop); }
+    const p = gate(line, deps, out, { ...session, signal: stop?.signal }).then((res) => {
       // After a failure, fail() has already answered this request.
       if (ticket && !checking.delete(ticket)) return;
       if (failure !== null) return;
+      if ('drop' in res) return; // cancelled: no answer is owed, and nothing is forwarded
       if ('forward' in res) {
         if (req) methodById.set(req.id, req.method);
         child.stdin!.write(res.forward + '\n');
       } else out(res.reply);
     }).catch((e) => deps.log(`guard error: ${e instanceof Error ? e.message : String(e)}`))
-      .finally(() => pending.delete(p));
+      .finally(() => { pending.delete(p); if (stop) inFlight.delete(stop); if (req && waiting.get(req.id) === stop) waiting.delete(req.id); });
     pending.add(p);
   }).on('close', () => {
     clientClosed = true;
+    // The end of the client's input cancels every call still waiting: until
+    // 0.5.4 a hold approved after the client had gone was still forwarded.
+    for (const c of inFlight) c.abort('closed');
     if (failure !== null) { leave(failCode); return; }
     void Promise.allSettled([...pending]).then(() => { if (failure === null) child.stdin!.end(); });
   });

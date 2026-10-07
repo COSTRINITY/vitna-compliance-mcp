@@ -120,7 +120,7 @@ date they state.
 
 ## Verify VITNA evidence yourself
 
-Every decision also produces an Ed25519-signed evidence record that anyone can verify offline — **no account, and no trust in VITNA's servers required**. The public key is published, the verifier is open source, and the three commands below prove it in about a minute.
+Every decision on a claimed account also produces an Ed25519-signed evidence record that anyone can verify offline, with **no account of their own and no trust in VITNA's servers**. The public key is published, the verifier is open source, and the three commands below prove it in about a minute.
 
 One minute, no account, no trust in VITNA's servers required. Download the open-source verifier and a real signed sample bundle, then check the signature offline with Node 18+:
 
@@ -348,6 +348,8 @@ start; otherwise a throwaway is used.
 - `VITNA_EMAIL`: optional. Email to own the self-provisioned trial account. A throwaway is used if unset. It does not claim the account: claim it with GitHub or a passkey.
 - `VITNA_BASE_URL`: defaults to `https://vitna.costrinity.xyz`. Point at your own VITNA instance if self-hosted.
 - `VITNA_AGENT_NAME`: optional. The agent name a self-provisioned trial account is created with. Defaults to `vitna-compliance-mcp`. Versions before 0.5.1 added your machine's hostname to that name; 0.5.1 and later do not.
+- `VITNA_GUARD_CLIENT_TIMEOUT_SECONDS`: optional, 0.5.4 and later. Your MCP client's tool-call timeout, if you have raised it: a held call is waited on for that, less a margin, before the agent is told it was held, not run. Without it the guard uses the timeout it knows for your client, and waits 4 seconds for a client it does not know.
+- `VITNA_GUARD_MAX_HOLD_SECONDS`: optional, 0.5.4 and later. The longest any held call is waited on, which is what limits it for a client that never times out. Default 600.
 - `VITNA_OPEN_CLAIM`: optional, 0.5.2 and later. Set to `1` to have the claim link opened in your default browser when a trial starts, as well as printed in the MCP server log. Off by default, because the server often runs where nobody is at the screen, the call that starts the trial is your agent's, and an agent that drives your browser could read the page. Only an https `/claim` link is opened, without a shell.
 
 The old `VIGIL_*` names for all of these (`VIGIL_OWNER_ID`, `VIGIL_API_KEY`, `VIGIL_EMAIL`, `VIGIL_BASE_URL`, `VIGIL_AGENT_NAME`) are still accepted forever, so existing configs keep working.
@@ -485,6 +487,27 @@ against it:
   that the call is held and until when. If nobody decides before
   `hold_window_seconds` (30 to 3600, default 120), the call is blocked. A hold
   can never be decided with an API key, including the agent's own.
+- **Holds and your client's timeout (0.5.4).** Most MCP clients stop waiting
+  for a tool call long before a hold's window ends, and many say nothing when
+  they do. The guard never forwards a held call after the client may have
+  given up. It reads the client's name from its `initialize` request and waits
+  at most that client's documented timeout, less a margin; a client it does
+  not know is waited on for 4 seconds, below the shortest timeout it knows of.
+  The MCP server log says which client it saw and how long it will wait. When
+  the wait ends with the hold still open, the agent is told the call was held,
+  not run, and the hold stays open: if a person approves it, the same call
+  (the same tool with the same arguments) runs once if the agent retries it
+  within 10 minutes of the approval. Repeats of a held call wait on the same
+  hold instead of opening another (unless the repeat arrives before the first
+  call's hold is open). A cancel from the client, or the client
+  closing its side, stops a held call: it is never forwarded, whatever is
+  decided after. `VITNA_GUARD_CLIENT_TIMEOUT_SECONDS` tells the guard your
+  client's timeout if you have raised it (the guard waits that, less a
+  margin), and `VITNA_GUARD_MAX_HOLD_SECONDS` (default 600) caps every wait,
+  which matters for clients that never time out. The client names the guard recognises are taken from each client's
+  documentation and not yet tested against each client. Clients that open a
+  new session for every call (LlamaIndex, AG2) keep the repeat and retry rules
+  within one session only, so a retry after approval opens a new hold there.
 - **Canary holds.** `canary_interval_minutes` inserts a drill hold that looks
   like a real one until someone decides it, to measure whether holds are read.
   Drills are shown on the dashboard and never emailed.

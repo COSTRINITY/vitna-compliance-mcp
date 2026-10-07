@@ -3,7 +3,7 @@
   "name": "xyz.costrinity/vitna-compliance-preflight",
   "title": "VITNA – Containment for rogue AI agents",
   "description": "Wraps stdio MCP servers. Risky calls wait for a person; no answer, no run. Signed records.",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "websiteUrl": "https://vitna.costrinity.xyz",
   "repository": {
     "url": "https://github.com/COSTRINITY/vitna-compliance-mcp",
@@ -28,7 +28,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@costrinity/vitna-compliance-mcp",
-      "version": "0.5.3",
+      "version": "0.5.4",
       "transport": {
         "type": "stdio"
       },
