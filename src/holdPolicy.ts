@@ -25,8 +25,11 @@
  *
  * The names in CLIENTS are UNPROVEN until a real client of that name is
  * tested: the guard logs the name and version each client sends, and the
- * setup table records which were tested. Timeouts are from each client's
- * documentation as read on 7 October 2026 (VITNA_everywhere_build_prompt.md).
+ * setup table records which were tested. Names and timeouts are from each
+ * client's documentation or source as read on 7 October 2026
+ * (vigil/lib/clientSetups.json lists the sources). Cursor, Windsurf, Mastra
+ * and the OpenAI Agents JS SDK are not listed: Cursor's and Windsurf's names
+ * and timeouts are unconfirmed, and the other two send a name the user picks.
  */
 import { createHash } from 'node:crypto';
 
@@ -47,16 +50,24 @@ export interface ClientEntry {
  * timeouts) maps to the shortest of them.
  */
 export const CLIENTS: readonly ClientEntry[] = [
-  { names: ['mcp'], label: 'a client on the Python MCP SDK (OpenAI Agents, ADK, AutoGen, LlamaIndex, CrewAI, LangChain)', timeoutMs: 5_000, verified: false },
+  // The Python MCP SDK's default name, sent by the OpenAI Agents SDK (5 s),
+  // AutoGen (5 s), CrewAI (30 s), LlamaIndex (30 s), LangChain and Microsoft
+  // Agent Framework (none): the shortest of them.
+  { names: ['mcp'], label: 'a client on the Python MCP SDK (OpenAI Agents, AutoGen, CrewAI, LlamaIndex, LangChain, Agent Framework)', timeoutMs: 5_000, verified: false },
+  { names: ['google-adk'], label: 'Google ADK', timeoutMs: 5_000, verified: false },
   { names: ['claude-ai'], label: 'Claude Desktop', timeoutMs: 240_000, verified: false },
+  // About 30 minutes idle unless a per-server timeout is set; the guard's own maximum (600 s) applies first.
+  { names: ['claude-code'], label: 'Claude Code', timeoutMs: 1_800_000, verified: false },
+  // 60 s in the docs, 300 s in current source: the shorter.
+  { names: ['codex-mcp-client'], label: 'Codex', timeoutMs: 60_000, verified: false },
+  { names: ['gemini-cli-mcp-client'], label: 'Gemini CLI', timeoutMs: 600_000, verified: false },
   { names: ['visual studio code', 'visual studio code - insiders'], label: 'VS Code', timeoutMs: null, verified: false },
-  { names: ['cursor-vscode'], label: 'Cursor', timeoutMs: 60_000, verified: false },
   { names: ['zed'], label: 'Zed', timeoutMs: 60_000, verified: false },
   { names: ['cline'], label: 'Cline', timeoutMs: 60_000, verified: false },
-  { names: ['continue', 'continue-client'], label: 'Continue', timeoutMs: 60_000, verified: false },
-  { names: ['mastra'], label: 'Mastra', timeoutMs: 60_000, verified: false },
-  { names: ['n8n'], label: 'n8n', timeoutMs: 60_000, verified: false },
-  { names: ['openclaw'], label: 'OpenClaw', timeoutMs: 60_000, verified: false },
+  { names: ['continue-client'], label: 'Continue', timeoutMs: 60_000, verified: false },
+  { names: ['goose-cli', 'goose-desktop'], label: 'Goose', timeoutMs: 300_000, verified: false },
+  { names: ['openclaw-bundle-mcp'], label: 'OpenClaw', timeoutMs: 60_000, verified: false },
+  { names: ['ai-sdk-mcp-client'], label: 'Vercel AI SDK', timeoutMs: null, verified: false },
 ];
 
 /** The shortest timeout in CLIENTS: an unknown client is treated like the fastest known one (waited on 4 s, after the margin). */

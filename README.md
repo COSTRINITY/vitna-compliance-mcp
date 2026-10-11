@@ -49,6 +49,44 @@ Detection is heuristic pattern matching, not a sandbox.
 
 [What it doesn't do](#honest-limits) · [Guard mode](#guard-mode-vitna-in-the-execution-path-050) · [Verify a record](#verify-vitna-evidence-yourself)
 
+## Agent setups
+
+The guard wraps stdio MCP servers, so it can sit in front of a client or SDK that launches stdio MCP servers. A setup is listed as tested only after we have run it with the guard.
+
+<!-- clients:start -->
+<!-- Generated from vigil/lib/clientSetups.json by vigil/scripts/gen-client-list.mjs. Do not edit by hand. -->
+
+The config for each is on [Connect your agent](https://vitna.costrinity.xyz/connect); [Compatibility](https://vitna.costrinity.xyz/compatibility) says which are tested.
+
+- **Claude Desktop**: documented, not yet tested; a hold waits for the decision.
+- **Claude Code**: documented, not yet tested; a hold waits for the decision.
+- **Codex CLI**: documented, not yet tested; a hold waits for the decision.
+- **Gemini CLI**: documented, not yet tested; a hold waits for the decision.
+- **Cursor**: documented, not yet tested; a hold is answered "held, not run", and a retry of the same call runs once after an approval.
+- **VS Code (Copilot)**: documented, not yet tested; a hold waits for the decision.
+- **Cline**: documented, not yet tested; a hold waits for the decision.
+- **Continue**: documented, not yet tested; a hold waits for the decision.
+- **Zed**: documented, not yet tested; a hold waits for the decision.
+- **Goose**: documented, not yet tested; a hold waits for the decision.
+- **Windsurf / Devin Desktop**: documented, not yet tested; a hold is answered "held, not run", and a retry of the same call runs once after an approval.
+- **OpenClaw (VITNA plugin)**: documented, not yet tested; a hold waits for the decision.
+- **OpenClaw (MCP servers)**: documented, not yet tested; a hold waits for the decision.
+- **OpenAI Agents SDK (Python)**: documented, not yet tested; a hold waits for the decision.
+- **OpenAI Agents SDK (JS)**: documented, not yet tested; a hold waits for the decision.
+- **Google ADK (Python)**: documented, not yet tested; a hold waits for the decision.
+- **LangChain MCP adapters**: documented, not yet tested; a hold is answered "held, not run", and a retry of the same call runs once after an approval.
+- **CrewAI**: documented, not yet tested; a hold is answered "held, not run", and a retry of the same call runs once after an approval.
+- **AutoGen**: documented, not yet tested; a hold waits for the decision.
+- **Microsoft Agent Framework (Python)**: documented, not yet tested; a hold is answered "held, not run", and a retry of the same call runs once after an approval.
+- **LlamaIndex**: documented, not yet tested; a hold waits for the decision.
+- **Mastra**: documented, not yet tested; a hold waits for the decision.
+- **Vercel AI SDK**: documented, not yet tested; a hold waits for the decision.
+
+Not supported:
+
+- **n8n (MCP Client Tool)**: Its MCP Client Tool connects over SSE and HTTP only, not stdio, so the guard cannot sit in front of it. A remote VITNA gateway is planned.
+<!-- clients:end -->
+
 ## Renamed from VIGIL
 
 This package was formerly published as
@@ -349,6 +387,7 @@ start; otherwise a throwaway is used.
 - `VITNA_BASE_URL`: defaults to `https://vitna.costrinity.xyz`. Point at your own VITNA instance if self-hosted.
 - `VITNA_AGENT_NAME`: optional. The agent name a self-provisioned trial account is created with. Defaults to `vitna-compliance-mcp`. Versions before 0.5.1 added your machine's hostname to that name; 0.5.1 and later do not.
 - `VITNA_GUARD_CLIENT_TIMEOUT_SECONDS`: optional, 0.5.4 and later. Your MCP client's tool-call timeout, if you have raised it: a held call is waited on for that, less a margin, before the agent is told it was held, not run. Without it the guard uses the timeout it knows for your client, and waits 4 seconds for a client it does not know.
+- `VITNA_GUARD_LOOK_TOOL`: optional, 0.5.5 and later. Set to `1` to offer the aquarium look tool, `vitna_choose_look`, to your agent.
 - `VITNA_GUARD_MAX_HOLD_SECONDS`: optional, 0.5.4 and later. The longest any held call is waited on, which is what limits it for a client that never times out. Default 600.
 - `VITNA_OPEN_CLAIM`: optional, 0.5.2 and later. Set to `1` to have the claim link opened in your default browser when a trial starts, as well as printed in the MCP server log. Off by default, because the server often runs where nobody is at the screen, the call that starts the trial is your agent's, and an agent that drives your browser could read the page. Only an https `/claim` link is opened, without a shell.
 
@@ -508,6 +547,13 @@ against it:
   documentation and not yet tested against each client. Clients that open a
   new session for every call (LlamaIndex, AG2) keep the repeat and retry rules
   within one session only, so a retry after approval opens a new hold there.
+- **The aquarium look tool (0.5.5).** With `VITNA_GUARD_LOOK_TOOL=1`, the guard adds
+  `vitna_choose_look` to the agent's tools: the agent picks one emoji and one of
+  12 colours for how it appears in its owner's VITNA aquarium. It is cosmetic
+  only and changes nothing about what the agent may do. The guard answers it
+  itself, through VITNA with the agent's own key; it is never forwarded to the
+  wrapped server and never held. The agent cannot set its name: only its owner
+  names it.
 - **Canary holds.** `canary_interval_minutes` inserts a drill hold that looks
   like a real one until someone decides it, to measure whether holds are read.
   Drills are shown on the dashboard and never emailed.

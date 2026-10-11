@@ -62,6 +62,7 @@ import { randomBytes } from 'node:crypto';
 import { listedTools, resolveTool, SERVER_VERSION } from './tools.js';
 import { runGuard, honeytoolsFor, makeHoneytokens, engagementDecision, coverageLabel, trialLimitFrom, type GuardDecision, type GuardDeps, type VitnaResult } from './guard.js';
 import { scrubValue, claimLinkForPerson, openCommand, trialSessionEnd, CLAIM_LINK_IN_LOG } from './claimLink.js';
+import { LOOK_TOOL, lookReply } from './look.js';
 
 /**
  * The claim link this run received, kept in memory only (never written to a
@@ -626,6 +627,7 @@ function engagementGuard(policyFile: string, wrapped: string[]) {
   };
 
   const deps: GuardDeps = {
+    ...lookDeps(),
     failOpen: env('GUARD_FAIL_OPEN') === '1',
     log: (m) => console.error(`[vitna-guard] ${m}`),
     honeytools,
@@ -709,6 +711,22 @@ function engagementGuard(policyFile: string, wrapped: string[]) {
   return deps;
 }
 
+/**
+ * The aquarium look tool (0.5.5), on when VITNA_GUARD_LOOK_TOOL=1: listed in
+ * tools/list and answered by the guard through POST /api/aquarium/look with
+ * the agent's own key (src/look.ts).
+ */
+function lookDeps(): Pick<GuardDeps, 'lookTool' | 'chooseLook'> {
+  if (env('GUARD_LOOK_TOOL') !== '1') return {};
+  return {
+    lookTool: LOOK_TOOL,
+    async chooseLook(args) {
+      const r = await vitnaWithin('POST', '/api/aquarium/look', { emoji: args.emoji, color: args.color });
+      return lookReply(r.ok ? { ok: true, value: r.value } : { ok: false, reason: r.reason });
+    },
+  };
+}
+
 const guardSep = process.argv.indexOf('--');
 if (process.argv[2] === 'guard') {
   const wrapped = guardSep > 0 ? process.argv.slice(guardSep + 1) : [];
@@ -722,6 +740,7 @@ if (process.argv[2] === 'guard') {
   runGuard(wrapped[0]!, wrapped.slice(1), policyFile
     ? engagementGuard(policyFile, wrapped)
     : {
+        ...lookDeps(),
         preflight: guardPreflight,
         failOpen: env('GUARD_FAIL_OPEN') === '1',
         log: (m) => console.error(`[vitna-guard] ${m}`),

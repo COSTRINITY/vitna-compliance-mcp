@@ -185,6 +185,10 @@ export interface GuardDeps {
   holdStatus?(holdId: string): Promise<{ status: string; decided_at?: string | null } | null>;
   honeytools?: HoneyTool[];
   honeytokens?: HoneyTokens | null;
+  /** The aquarium look tool (0.5.5, src/look.ts), listed and answered by the guard itself when set. */
+  lookTool?: HoneyTool;
+  /** Set the agent's look through VITNA. Must resolve. */
+  chooseLook?(args: Record<string, unknown>): Promise<{ ok: boolean; text: string }>;
   failOpen: boolean;
   log(message: string): void;
   /** Runs once when the wrapped server exits (engagement mode closes its session). */
@@ -461,6 +465,13 @@ export async function gate(
     // Used, stale, closed or unreadable: the call is checked afresh below.
   }
 
+  // The aquarium look tool (0.5.5): answered here, through VITNA with the
+  // agent's own key, never forwarded and never held. Cosmetic only.
+  if (deps.lookTool && deps.chooseLook && name === deps.lookTool.name) {
+    const r = await deps.chooseLook(args);
+    return { reply: JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text: scrubText(r.text).value }], ...(r.ok ? {} : { isError: true }) } }) };
+  }
+
   // Bait: recorded and alerted by VITNA, refused here whatever VITNA says, and
   // never forwarded (the wrapped server does not have these tools anyway).
   const bait: BaitEvent | undefined = deps.honeytools?.some((t) => t.name === name) ? 'honeytool'
@@ -515,9 +526,9 @@ export async function gate(
  * Server -> client, for the responses the guard shapes: honeytools appended to
  * tools/list, honeytokens planted in config-shaped tools/call output.
  */
-export function shapeServerLine(line: string, method: string | undefined, deps: Pick<GuardDeps, 'honeytools' | 'honeytokens'>): string {
+export function shapeServerLine(line: string, method: string | undefined, deps: Pick<GuardDeps, 'honeytools' | 'honeytokens' | 'lookTool'>): string {
   if (!method || (method !== 'tools/list' && method !== 'tools/call')) return line;
-  if (method === 'tools/list' && !deps.honeytools?.length) return line;
+  if (method === 'tools/list' && !deps.honeytools?.length && !deps.lookTool) return line;
   if (method === 'tools/call' && !deps.honeytokens) return line;
   let msg: { result?: { tools?: unknown[] } & Record<string, unknown> };
   try {
@@ -528,7 +539,8 @@ export function shapeServerLine(line: string, method: string | undefined, deps: 
   if (!msg.result) return line;
   if (method === 'tools/list' && Array.isArray(msg.result.tools)) {
     const have = new Set(msg.result.tools.map((t) => (t as { name?: string }).name));
-    msg.result.tools = [...msg.result.tools, ...deps.honeytools!.filter((t) => !have.has(t.name))];
+    const added = [...(deps.honeytools ?? []), ...(deps.lookTool ? [deps.lookTool] : [])];
+    msg.result.tools = [...msg.result.tools, ...added.filter((t) => !have.has(t.name))];
     return JSON.stringify(msg);
   }
   if (method === 'tools/call') {
@@ -727,7 +739,7 @@ export function runGuard(command: string, commandArgs: string[], deps: GuardDeps
     if (parsed?.method === 'initialize') {
       session.client = clientProfile(parsed.params?.clientInfo);
       const v = parsed.params?.clientInfo?.version;
-      const clean = (t: string) => t.replace(/[ -]/g, ' ');
+      const clean = (t: string) => t.replace(/[\u0000-\u001f\u007f]/g, ' ');
       deps.log(`client "${clean(session.client.name ?? 'unnamed')}"${typeof v === 'string' ? ` ${clean(v.slice(0, 40))}` : ''} (${session.client.label}; ${session.client.source}): a held call is waited on for up to ${Math.round(waitBudgetMs(session.client, session.maxHold!) / 1000)} s, then answered as held, not run`);
     }
     if (parsed?.method === 'notifications/cancelled' && parsed.params?.requestId !== undefined) {
