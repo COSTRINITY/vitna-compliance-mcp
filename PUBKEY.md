@@ -77,16 +77,16 @@ different questions and the verifier answers them separately:
 
 | Verdict | Meaning |
 |---|---|
-| `VALID and COMPLETE` | Authentic, and contains every record matching its scope. |
-| `VALID but PARTIAL` | Authentic, but a **subset** of its own stated scope. The verifier prints how many records are missing. Do not treat it as a full record of the period it claims to cover. |
-| `VALID, completeness unknown` | Authentic, but the package predates completeness attestation (format `vigil-evidence-v1`). Whether it is complete cannot be determined from the package. |
+| `VALID, all 12 stated records present` | Authentic, and holds every record the package states for its scope. The verifier prints the count it found, for example `record count : 12 stated, 12 present`. |
+| `VALID but PARTIAL, 10 of 12 stated records present` | Authentic, but a **subset** of its own stated scope. The verifier prints how many records are missing. Do not treat it as a full record of the period it claims to cover. |
+| `VALID, record count not stated` | Authentic, but the package doesn't state a record count: a guard session bundle, or an export in format `vigil-evidence-v1`. Whether it holds every record in its scope cannot be determined from it. |
 
 Packages in format `vigil-evidence-v2` and later carry a `completeness` block
 **inside the signed envelope**, so the signature covers it and a partial
 package cannot be presented as a whole one.
 
 `sample-evidence.json` linked above is a **v1** package, so it verifies as
-`VALID, completeness unknown`. That is the correct output, not an error.
+`VALID, record count not stated`. That is the correct output, not an error.
 
 ## What is never published
 

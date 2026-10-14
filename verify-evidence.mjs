@@ -185,10 +185,10 @@ if (isLocal) {
 // declared by the operator. Shown before any decision, because a verified
 // record of a partial surface is still a partial record.
 if (pkg.coverage) {
-  // Desktop output puts full coverage in words rather than the schema's data
-  // value. The cloud line stays as already published.
+  // Full coverage is put in words rather than the schema's data value, for
+  // VITNA and VITNA Desktop bundles alike (founder decision, 2026-10-13).
   const level = String(pkg.coverage.coverage);
-  console.log('  guard coverage      :', (isLocal && level === 'complete' ? 'every declared surface wrapped' : level).toUpperCase());
+  console.log('  guard coverage      :', (level === 'complete' ? 'every declared surface wrapped' : level).toUpperCase());
   console.log('    ' + pkg.coverage.statement);
 }
 
@@ -248,6 +248,14 @@ const completeness = pkg.completeness ?? null;
 const missing = completeness && typeof completeness.records_matching_scope === 'number'
   ? completeness.records_matching_scope - (completeness.records_included ?? 0)
   : 'an unknown number of';
+// VITNA packages: "stated" is the count the package states for its scope,
+// "present" is the count of records this verifier found in it. All present
+// only when the package says so AND the counts agree.
+const stated = completeness && typeof completeness.records_matching_scope === 'number' ? completeness.records_matching_scope : null;
+const present = Array.isArray(records) ? records.length : (typeof completeness?.records_included === 'number' ? completeness.records_included : 0);
+const allPresent = !!completeness && completeness.complete === true && stated !== null && present >= stated;
+const countLine = stated === null ? `total not stated, ${present} present` : `${stated} stated, ${present} present`;
+const countMissing = stated === null ? 'an unknown number of' : String(Math.max(stated - present, 0));
 console.log('');
 if (isLocal) {
   // Same question, desktop wording: does the package state how many records
@@ -263,17 +271,18 @@ if (isLocal) {
     console.log('    neither it nor its signature can tell you whether any were left out.');
   }
 } else if (completeness) {
-  console.log('  completeness        :', completeness.complete ? 'COMPLETE' : 'PARTIAL');
-  console.log('    records included  :', completeness.records_included);
-  console.log('    matching scope    :', completeness.records_matching_scope ?? 'unknown');
-  if (!completeness.complete) {
-    console.log('    MISSING           : ' + missing + ' record(s) are NOT in this package');
+  // In plain words (founder decision, 2026-10-13): how many records the
+  // package states its scope holds, and how many this verifier counted in it.
+  console.log('  record count        : ' + countLine);
+  if (!allPresent) {
+    console.log('    MISSING           : ' + countMissing + ' record(s) are NOT in this package');
   }
 } else {
-  console.log('  completeness        : NOT ATTESTED (pre-v2 package)');
-  console.log('    This package predates completeness attestation. It may be a');
-  console.log('    complete export or a silently truncated one; the format does');
-  console.log('    not say, and the signature cannot tell you.');
+  // A package with no completeness block (a session bundle, or an export from
+  // before v2), in plain words (founder decision, 2026-10-13).
+  console.log('  record count        : NOT STATED');
+  console.log("    This bundle doesn't state a record count, so neither it nor its");
+  console.log('    signature can tell you whether any record was left out.');
 }
 
 console.log('');
@@ -301,17 +310,19 @@ if (pkgOk && keyIdsOk && recordsOk) {
     ? 'issued by VITNA'
     : "signed by the key given with --pubkey (key_id " + usedKeyId + "), which is not VITNA's published key";
   const line = signer + ', not altered since export' + (hashes ? ', and every record matches its committed hash.' : '.');
-  if (completeness && completeness.complete) {
-    console.log('VALID and COMPLETE: ' + line);
+  if (completeness && allPresent) {
+    const whole = stated === 0 ? 'no records in its stated scope' : stated === 1 ? 'the 1 stated record present' : `all ${stated} stated records present`;
+    console.log(`VALID, ${whole}: ` + line);
   } else if (completeness) {
-    console.log('VALID but PARTIAL: ' + line);
+    const noun = stated === 1 ? 'record' : 'records';
+    console.log((stated === null ? `VALID but PARTIAL, ${present} ${present === 1 ? 'record' : 'records'} present of a total it does not state: ` : `VALID but PARTIAL, ${present} of ${stated} stated ${noun} present: `) + line);
     console.log('       This package is a SUBSET of its own stated scope. Every record in');
     console.log('       it is authentic, but records matching the scope are missing. Do not');
     console.log('       treat it as a full record of the period it claims to cover.');
   } else {
-    console.log('VALID, completeness unknown: ' + line);
-    console.log('       Pre-v2 package: whether it contains every record in its scope is');
-    console.log('       not attested and cannot be determined from the package.');
+    console.log('VALID, record count not stated: ' + line);
+    console.log("       This bundle doesn't state a record count, so whether it holds every");
+    console.log('       record in its scope cannot be determined from it.');
   }
   console.log('       (Does NOT prove the underlying records are factually true.)');
   process.exit(0);

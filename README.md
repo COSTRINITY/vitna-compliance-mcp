@@ -597,10 +597,14 @@ against it:
   work the same.
 - **Correlation.** A tool call's `_meta.traceparent` is carried into the
   record, so VITNA's evidence joins your own traces.
-- **Evidence.** When the wrapped server exits, the session closes and its
-  Ed25519-signed bundle is saved to `~/.vitna/bundles/`. Each hold is one
-  `hold-v1` lifecycle record (proposed, held, routed, decided, outcome) inside
-  it, verifiable offline with `scripts/verify-evidence.mjs`. On a trial key no
+- **Evidence.** When the guard closes a session, it saves the Ed25519-signed
+  bundle to `~/.vitna/bundles/`. Some MCP clients stop the guard as they exit,
+  before it can (seen with Claude Code 2.1.299 on Windows). VITNA's decisions
+  on each call stay in your account, and `GET /api/evidence/export` returns
+  them in a signed package, by date, without what happened to each hold. Each
+  hold is one `hold-v1` lifecycle record (proposed, held, routed, decided,
+  outcome) inside the bundle, verifiable offline with
+  `scripts/verify-evidence.mjs`. On a trial key no
   bundle is saved: signed evidence is for claimed accounts. From 0.5.3 the log
   says so when the session ends ("Trial keys don't get a signed bundle"), with
   the claim link this run received, or a pointer to the one the log showed when
