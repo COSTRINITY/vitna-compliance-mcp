@@ -37,7 +37,8 @@ Every `tools/call` is checked by VITNA before it reaches the server. Anything no
 allowed is refused with a tool error that says why. With no credentials you get a
 trial key: a risky call is held, and with nobody able to approve it yet, it's
 blocked when the window ends. To approve or deny holds and keep signed records,
-claim the account with GitHub or a passkey. The claim link is printed in your MCP
+claim the account with GitHub or a passkey, then decide holds in the
+[Aquarium](https://vitna.costrinity.xyz/dashboard/aquarium) on your dashboard. The claim link is printed in your MCP
 server log and never sent to the agent; `VITNA_OPEN_CLAIM=1` opens it in your
 browser.
 
@@ -343,6 +344,14 @@ browser as well. You get:
   claimed
 - a way to recover the key if you lose it
 
+**Where you decide holds.** After you claim, a call the guard holds waits for
+you on the dashboard: in the
+[Aquarium](https://vitna.costrinity.xyz/dashboard/aquarium), at your agent's
+tank, with Approve and Deny, and in the Pending holds panel that appears on the
+dashboard while a call waits. If nobody decides before the deadline, the call
+is blocked. You don't need a new key: the guard keeps the one it has, and
+claiming lifts its limits.
+
 **Your agent is never sent the link (0.5.2).** Only a person may claim the
 account that oversees the agent, so no tool result, error or notice carries it,
 in normal or guard mode. The agent is told that the account is unclaimed and
@@ -382,6 +391,14 @@ start; otherwise a throwaway is used.
   }
 }
 ```
+
+**If you rotate an agent's key**, the old key stops working at once. Put the
+new key in your MCP config as `VITNA_API_KEY` (with `VITNA_OWNER_ID`), then
+restart your MCP client so the guard restarts with it. Until then VITNA
+refuses the old key, and the guard refuses every tool call (with
+`VITNA_GUARD_FAIL_OPEN=1`, it forwards them unchecked instead). This applies to a
+key the server saved for you during a trial as well: the config's key is used
+instead of the saved one.
 
 ### What the env vars do
 
