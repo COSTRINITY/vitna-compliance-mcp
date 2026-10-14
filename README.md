@@ -4,8 +4,8 @@
 
 Agents go rogue through their tools. VITNA sits on the tools you put behind it.
 Calls to the tools you mark as risky wait for a person. No answer, no run.
-No API key can decide a hold, including the agent's own. On a claimed account,
-every guarded session ends in a signed record you can check offline.
+No API key can decide a hold, including the agent's own. Claimed accounts get
+signed records you can check offline.
 
 **[Try the demo](https://vitna.costrinity.xyz/demo)**: a labelled simulation in
 your browser. A scripted agent on pretend files reaches for risky tools, and you
