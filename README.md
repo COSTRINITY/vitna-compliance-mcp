@@ -63,7 +63,7 @@ The guard wraps stdio MCP servers, so it can sit in front of a client or SDK tha
 The config for each is on [Connect your agent](https://vitna.costrinity.xyz/connect); [Compatibility](https://vitna.costrinity.xyz/compatibility) says which are tested.
 
 - **Claude Desktop**: documented, not yet tested; a hold waits for the decision.
-- **Claude Code**: documented, not yet tested; a hold waits for the decision.
+- **Claude Code**: tested 2026-10-14, version 2.1.299; a hold waits for the decision.
 - **Codex CLI**: documented, not yet tested; a hold waits for the decision.
 - **Gemini CLI**: documented, not yet tested; a hold waits for the decision.
 - **Cursor**: documented, not yet tested; a hold is answered "held, not run", and a retry of the same call runs once after an approval.
