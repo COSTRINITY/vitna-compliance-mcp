@@ -7,6 +7,10 @@ Calls to the tools you mark as risky wait for a person. No answer, no run.
 No API key can decide a hold, including the agent's own. On a claimed account,
 every guarded session ends in a signed record you can check offline.
 
+**[Try the demo](https://vitna.costrinity.xyz/demo)**: a labelled simulation in
+your browser. A scripted agent on pretend files reaches for risky tools, and you
+decide its held calls. No install, nothing stored.
+
 ## Try it in 60 seconds
 
 ```
